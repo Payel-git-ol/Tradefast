@@ -44,7 +44,10 @@ export class SyntheticMarketData implements MarketDataSource {
       return seed / 0x7fffffff;
     };
     const stepMs = intervalMinutes(interval) * 60_000;
-    const start = Date.now() - limit * stepMs;
+    // Anchored to a fixed epoch (2024-01-01) — not wall-clock — so the same
+    // (symbol, interval, limit) always yields identical candle times. This keeps
+    // candle upserts idempotent and the series fully reproducible.
+    const start = Date.UTC(2024, 0, 1);
     let price = 100 + (seed % 500);
     const candles: Candle[] = [];
     for (let i = 0; i < limit; i++) {
