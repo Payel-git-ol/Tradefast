@@ -90,3 +90,20 @@ export class ResilientMarketData implements MarketDataSource {
     }
   }
 }
+
+/**
+ * Selects a market source from `LOSTFAST_MARKET_SOURCE`:
+ *   - `synthetic` → deterministic offline data (great for demos/CI/tests),
+ *   - `live`      → Binance only (fails if unreachable),
+ *   - `resilient` (default) → live with synthetic fallback.
+ */
+export function createMarketSource(): MarketDataSource {
+  switch ((process.env.LOSTFAST_MARKET_SOURCE ?? 'resilient').toLowerCase()) {
+    case 'synthetic':
+      return new SyntheticMarketData();
+    case 'live':
+      return new BinanceMarketData();
+    default:
+      return new ResilientMarketData();
+  }
+}

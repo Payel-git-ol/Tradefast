@@ -1,0 +1,25 @@
+/** Runtime configuration, resolved from environment variables with sane defaults. */
+export interface LostfastConfig {
+  symbols: string[];
+  interval: string;
+  candleLimit: number;
+  accountBalance: number;
+  model: string;
+}
+
+const DEFAULT_SYMBOLS = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT'];
+
+export function loadConfig(overrides: Partial<LostfastConfig> = {}): LostfastConfig {
+  const symbols = (process.env.LOSTFAST_SYMBOLS ?? '')
+    .split(',')
+    .map((s) => s.trim().toUpperCase())
+    .filter(Boolean);
+
+  return {
+    symbols: overrides.symbols ?? (symbols.length > 0 ? symbols : DEFAULT_SYMBOLS),
+    interval: overrides.interval ?? process.env.LOSTFAST_INTERVAL ?? '1h',
+    candleLimit: overrides.candleLimit ?? Number(process.env.LOSTFAST_CANDLE_LIMIT ?? 200),
+    accountBalance: overrides.accountBalance ?? Number(process.env.LOSTFAST_ACCOUNT_BALANCE ?? 10_000),
+    model: overrides.model ?? process.env.LOSTFAST_AI_MODEL ?? 'claude-opus-4-7',
+  };
+}
