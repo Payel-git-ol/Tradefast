@@ -1,6 +1,6 @@
 {
   "name": "lostfast",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "LØSTFΛST — a disciplined crypto market-research CLI: strategies, analytics, risk and AI-assisted research, in the style of Gemini CLI.",
   "type": "module",
   "license": "MIT",
