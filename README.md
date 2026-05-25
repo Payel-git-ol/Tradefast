@@ -8,7 +8,7 @@ sizes positions with volatility-aware risk management, indexes a knowledge base,
 optionally scrapes references with Playwright, and narrates the result through a
 pluggable AI advisor — all from a polished interactive terminal UI.
 
-![LØSTFΛST CLI](https://github.com/Payel-git-ol/Lostfast/blob/issue-1-8e96983f8bcd/docs/screenshots/cli.png?raw=true)
+![LØSTFΛST CLI](docs/screenshots/cli.png)
 
 ---
 
