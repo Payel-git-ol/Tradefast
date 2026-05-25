@@ -1,0 +1,30 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+
+# Embedded PGlite data directory
+.lostfast/
+
+# Environment
+.env
+.env.local
+
+# Logs
+*.log
+logs/
+
+# Playwright
+playwright-report/
+test-results/
+.cache/
+
+# OS / editor
+.DS_Store
+*.swp
+
+# Experiment artifacts
+experiments/*.ansi
+experiments/*.err
+experiments/lostfast-cli.png
