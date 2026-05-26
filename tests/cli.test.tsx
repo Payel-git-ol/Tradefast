@@ -5,7 +5,10 @@ import { render } from 'ink-testing-library';
 import type { Lostfast } from '../src/app/lostfast.js';
 import { App } from '../src/cli/App.js';
 import { completeCommand, parseCommand, suggestCommands } from '../src/cli/commands.js';
+import { OutputLine } from '../src/cli/output.js';
 import { getTheme, themeNames } from '../src/cli/theme.js';
+import { Money } from '../src/domain/money.js';
+import type { RunReport } from '../src/pipeline/collector.js';
 
 const fakeApp = {
   driver: 'test',
@@ -81,5 +84,80 @@ describe('cli themes', () => {
     expect(themeNames()).toEqual(['violet', 'ocean', 'ember', 'forest', 'mono']);
     expect(getTheme('ocean').colors.info).not.toBe(getTheme('ember').colors.info);
     expect(getTheme('unknown').name).toBe('violet');
+  });
+});
+
+describe('run output', () => {
+  it('renders a trade log table with entry, stop-loss, and target prices', () => {
+    const report: RunReport = {
+      runId: 34,
+      kind: 'start',
+      searchResults: 3,
+      durationMs: 2340,
+      symbols: [
+        {
+          symbol: 'BTCUSDT',
+          candlesAdded: 200,
+          signalsInserted: 13,
+          signalsUpdated: 0,
+          signalsUnchanged: 0,
+          scrapesAdded: 0,
+          insight: 'hidden in table view',
+          analysis: {
+            symbol: 'BTCUSDT',
+            analytics: {
+              symbol: 'BTCUSDT',
+              consensusScore: 0.17,
+              longCount: 1,
+              shortCount: 0,
+              neutralCount: 12,
+              strongestStrategy: 'pullback',
+              strongestStrength: 0.72,
+              lastPrice: 100,
+              atr: 3.33,
+            },
+            evaluated: [
+              {
+                status: 'Approved by risk',
+                signal: {
+                  symbol: 'BTCUSDT',
+                  strategy: 'pullback',
+                  direction: 'long',
+                  strength: 0.72,
+                  reason: 'pullback',
+                  suggestedRiskPercent: 0.5,
+                  at: 1,
+                },
+                position: {
+                  quantity: 10,
+                  notional: Money.zero(),
+                  riskAmount: Money.zero(),
+                  stopDistance: 5,
+                },
+                risk: { approved: true, reasons: [] },
+              },
+            ],
+          },
+        },
+      ],
+    };
+
+    const tallStdout = { rows: 80, columns: 120, write: () => {}, on: () => {}, removeListener: () => {} } as any;
+    const { lastFrame, unmount } = render(
+      <OutputLine item={{ id: 1, kind: 'run', report }} theme={getTheme('violet')} />,
+      { stdout: tallStdout },
+    );
+
+    const frame = lastFrame();
+    expect(frame).toContain('# Trade Log');
+    expect(frame).toContain('Currency');
+    expect(frame).toContain('Entry price');
+    expect(frame).toContain('BTCUSDT');
+    expect(frame).toContain('110.00');
+    expect(frame).toContain('95.00');
+    expect(frame).toContain('100.00');
+    expect(frame).not.toContain('strongest:');
+    expect(frame).not.toContain('AI BTCUSDT');
+    unmount();
   });
 });
