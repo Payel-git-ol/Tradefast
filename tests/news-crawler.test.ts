@@ -5,6 +5,7 @@ import { LostfastStore } from '../src/db/store.js';
 import {
   DEFAULT_NEWS_SOURCES,
   NewsCrawler,
+  type NewsCandidate,
   type NewsItem,
   type NewsPageFetcher,
 } from '../src/services/news-crawler.js';
@@ -107,6 +108,71 @@ describe('NewsCrawler', () => {
       expect.arrayContaining([
         expect.objectContaining({ sourceId: 'broken', failed: true, error: 'network down' }),
         expect.objectContaining({ sourceId: DEFAULT_NEWS_SOURCES[1].id, failed: false, accepted: 1 }),
+      ]),
+    );
+  });
+
+  it('follows source-local calendar and article links up to the configured crawl depth', async () => {
+    const rootUrl = 'https://ru.investing.com/economic-calendar';
+    const eventUrl = 'https://ru.investing.com/economic-calendar/brc-shop-price-index-19';
+    const articleUrl = 'https://ru.investing.com/analysis/article-200297782';
+    const seenUrls: string[] = [];
+    const pages: Record<string, NewsCandidate[]> = {
+      [rootUrl]: [
+        {
+          title: 'BRC Shop Price Index',
+          url: eventUrl,
+          summary: 'Calendar event link',
+        },
+      ],
+      [eventUrl]: [
+        {
+          title: 'BRC Shop Price Index in the United Kingdom',
+          url: eventUrl,
+          summary: 'Event detail page',
+        },
+        {
+          title: 'Фунт ждет новые данные по потребительским ценам',
+          url: articleUrl,
+          summary: 'Linked Investing.com analysis article',
+        },
+      ],
+      [articleUrl]: [
+        {
+          title: 'Фунт стерлингов удерживается перед публикацией индекса цен',
+          url: articleUrl,
+          summary: 'Full article body extracted from the detail page',
+        },
+      ],
+    };
+    const fetcher: NewsPageFetcher = {
+      name: 'fake-graph',
+      fetch: vi.fn(async (source) => {
+        seenUrls.push(source.url);
+        return { pageTitle: source.title, candidates: pages[source.url] ?? [] };
+      }),
+      close: vi.fn(async () => {}),
+    };
+    const crawler = new NewsCrawler([DEFAULT_NEWS_SOURCES[0]], fetcher, {
+      maxItemsPerSource: 5,
+      maxDepth: 2,
+      maxPagesPerSource: 4,
+      now: () => new Date('2026-05-26T10:00:00.000Z'),
+    });
+
+    const report = await crawler.crawl();
+
+    expect(seenUrls).toEqual([rootUrl, eventUrl, articleUrl]);
+    expect(report.items.map((item) => item.url)).toEqual(
+      expect.arrayContaining([eventUrl, articleUrl]),
+    );
+    expect(report.items).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          title: 'Фунт стерлингов удерживается перед публикацией индекса цен',
+          url: articleUrl,
+          summary: 'Full article body extracted from the detail page',
+        }),
       ]),
     );
   });

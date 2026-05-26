@@ -4,8 +4,8 @@ import React from 'react';
 import type { PersistedNewsCrawlReport, StatusReport } from '../app/lostfast.js';
 import type { RunReport } from '../pipeline/collector.js';
 import { Banner } from './Banner.js';
-import { type CliTheme } from './theme.js';
-import { renderTradeLogLines } from './trade-log.js';
+import { directionColor, type CliTheme } from './theme.js';
+import { renderTradeLogParts } from './trade-log.js';
 
 /** A single entry in the scrolling transcript. */
 export type OutputItem =
@@ -19,20 +19,39 @@ export type OutputItem =
   | { id: number; kind: 'strategies'; list: { id: string; title: string }[] };
 
 function RunView({ report, theme }: { report: RunReport; theme: CliTheme }): React.ReactElement {
-  const lines = renderTradeLogLines(report);
-  const isTableBorder = (line: string) => line.startsWith('╭') || line.startsWith('├') || line.startsWith('╰');
+  const parts = renderTradeLogParts(report);
 
   return (
     <Box flexDirection="column" marginY={1}>
-      {lines.map((line, index) => (
-        <Text
-          key={`${index}:${line}`}
-          bold={index === 0 || index === 2}
-          color={index === 0 ? theme.colors.accent : isTableBorder(line) ? theme.colors.muted : undefined}
-        >
-          {line}
-        </Text>
-      ))}
+      {parts.map((part, index) => {
+        if ('text' in part) {
+          return (
+            <Text
+              key={`${index}:${part.text}`}
+              bold={part.kind === 'title'}
+              color={part.kind === 'title' ? theme.colors.accent : theme.colors.muted}
+            >
+              {part.text}
+            </Text>
+          );
+        }
+
+        return (
+          <Text key={`${index}:${part.kind}`} bold={part.kind === 'header'}>
+            <Text color={theme.colors.muted}>│</Text>
+            {part.cells.map((cell) => (
+              <React.Fragment key={cell.key}>
+                <Text
+                  color={part.kind === 'row' && cell.key === 'direction' ? directionColor(cell.value, theme) : undefined}
+                >
+                  {cell.text}
+                </Text>
+                <Text color={theme.colors.muted}>│</Text>
+              </React.Fragment>
+            ))}
+          </Text>
+        );
+      })}
     </Box>
   );
 }
