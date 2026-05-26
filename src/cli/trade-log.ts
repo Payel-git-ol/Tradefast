@@ -76,7 +76,12 @@ function buildTradeLogRow(symbol: SymbolReport): TradeLogRow {
 }
 
 function formatPrice(value: number | null): string {
-  return isFinitePrice(value) ? value.toFixed(2) : '';
+  if (!isFinitePrice(value)) return '';
+  if (value >= 1) return value.toFixed(2);
+  if (value >= 0.01) return value.toFixed(4);
+  if (value >= 0.0001) return value.toFixed(6);
+  if (value >= 0.000001) return value.toFixed(8);
+  return value.toFixed(12);
 }
 
 function displayRows(report: RunReport): Record<TradeLogColumnKey, string>[] {

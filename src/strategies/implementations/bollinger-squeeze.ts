@@ -26,7 +26,7 @@ export const bollingerSqueeze: Strategy = {
     // Bandwidth = (upper − lower) / middle, normalised so it compares across symbols.
     const widths: number[] = [];
     for (let i = 0; i <= n; i++) {
-      if (!Number.isNaN(upper[i]) && middle[i] !== 0) {
+      if (!Number.isNaN(upper[i]) && !Number.isNaN(lower[i]) && middle[i] !== 0) {
         widths.push((upper[i] - lower[i]) / middle[i]);
       }
     }

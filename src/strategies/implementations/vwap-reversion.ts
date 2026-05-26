@@ -26,7 +26,7 @@ export const vwapReversion: Strategy = {
 
     const spreads = price.map((p, i) => p - series[i]);
     const sigma = std(spreads, 'uncorrected') as unknown as number;
-    if (sigma === 0) return makeSignal(this.id, symbol, at, 'neutral', 0.3, 'No VWAP dispersion');
+    if (!sigma || sigma === 0) return makeSignal(this.id, symbol, at, 'neutral', 0.3, 'No VWAP dispersion');
 
     const z = (price[n] - v) / sigma;
     if (z <= -2) {

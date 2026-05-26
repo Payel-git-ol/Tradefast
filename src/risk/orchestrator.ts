@@ -66,7 +66,7 @@ export class StrategyRiskOrchestrator {
         notional: position.notional,
         riskAmount: position.riskAmount,
         riskPercent,
-      });
+      }, accountBalance);
 
       return {
         signal,

@@ -96,5 +96,7 @@ export class ResilientScraper implements Scraper {
  */
 export function createScraper(): Scraper | null {
   const flag = (process.env.LOSTFAST_SCRAPE ?? '').toLowerCase();
-  return flag === '1' || flag === 'true' || flag === 'on' ? new ResilientScraper() : null;
+  if (flag === '1' || flag === 'true' || flag === 'on') return new ResilientScraper();
+  const num = Number(flag);
+  return Number.isFinite(num) && num > 0 ? new ResilientScraper() : null;
 }

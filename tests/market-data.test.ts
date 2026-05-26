@@ -40,7 +40,7 @@ describe('spot-price market data sources', () => {
     const candles = await new MexcTickerMarketData('https://api.example.test').getCandles('BTCUSDT', '1h', 20);
 
     expect(fetchMock).toHaveBeenCalledWith(
-      'https://api.example.test/api/v3/klines?symbol=BTCUSDT&interval=1h&limit=20',
+      'https://api.example.test/api/v3/klines?symbol=BTCUSDT&interval=60m&limit=20',
       expect.any(Object),
     );
     expect(candles).toHaveLength(20);

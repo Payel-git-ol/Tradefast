@@ -91,13 +91,13 @@ export function rsi(values: readonly number[], period = 14): number[] {
   }
   let avgGain = gain / period;
   let avgLoss = loss / period;
-  out[period] = avgLoss === 0 ? 100 : 100 - 100 / (1 + avgGain / avgLoss);
+  out[period] = !avgLoss || avgLoss === 0 ? 100 : 100 - 100 / (1 + avgGain / avgLoss);
 
   for (let i = period + 1; i < values.length; i++) {
     const change = values[i] - values[i - 1];
     avgGain = (avgGain * (period - 1) + Math.max(change, 0)) / period;
     avgLoss = (avgLoss * (period - 1) + Math.max(-change, 0)) / period;
-    out[i] = avgLoss === 0 ? 100 : 100 - 100 / (1 + avgGain / avgLoss);
+    out[i] = !avgLoss || avgLoss === 0 ? 100 : 100 - 100 / (1 + avgGain / avgLoss);
   }
   return out;
 }

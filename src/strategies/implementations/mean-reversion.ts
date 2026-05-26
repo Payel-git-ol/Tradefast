@@ -25,12 +25,14 @@ export const meanReversion: Strategy = {
     const l = lastDefined(lower);
 
     if (last > u) {
-      const overshoot = (last - u) / (u - m || 1);
+      const band = u - m;
+      const overshoot = (last - u) / (band > 1e-12 ? band : 1);
       return makeSignal(this.id, symbol, at, 'short', 0.7 + overshoot * 0.2,
         'Price closed above the upper Bollinger Band — reversion short');
     }
     if (last < l) {
-      const overshoot = (l - last) / (m - l || 1);
+      const band = m - l;
+      const overshoot = (l - last) / (band > 1e-12 ? band : 1);
       return makeSignal(this.id, symbol, at, 'long', 0.7 + overshoot * 0.2,
         'Price closed below the lower Bollinger Band — reversion long');
     }

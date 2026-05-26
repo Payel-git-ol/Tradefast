@@ -19,9 +19,14 @@ export interface RiskCheckResult {
  * acted on. Pure and synchronous so it is trivial to test and to reason about.
  */
 export class RiskValidator {
-  constructor(private readonly limit: RiskLimit = defaultRiskLimit()) {}
+  private limit: RiskLimit;
 
-  validate(trade: ProposedTrade): RiskCheckResult {
+  constructor(accountBalance?: number) {
+    this.limit = defaultRiskLimit(accountBalance);
+  }
+
+  validate(trade: ProposedTrade, accountBalance?: number): RiskCheckResult {
+    if (accountBalance != null) this.limit = defaultRiskLimit(accountBalance);
     const reasons: string[] = [];
 
     if (trade.notional.isGreaterThan(this.limit.maxPositionSize)) {

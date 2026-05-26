@@ -30,6 +30,21 @@ const PRICE_RANGES: Record<string, [number, number]> = {
   SUI:  [0.01,   50],
   TON:  [0.01,   50],
   PEPE: [1e-12,  0.01],
+  TRX:  [0.01,   1],
+  ATOM: [0.5,    50],
+  FIL:  [0.5,    50],
+  HBAR: [0.001,  2],
+  ALGO: [0.01,   5],
+  VET:  [0.001,  1],
+  XLM:  [0.01,   5],
+  ETC:  [1,      100],
+  AAVE: [10,     1_000],
+  ICP:  [0.5,    50],
+  INJ:  [0.5,    100],
+  RUNE: [0.1,    50],
+  OP:   [0.01,   10],
+  FET:  [0.05,   10],
+  KAS:  [0.001,  5],
 };
 
 function priceRange(symbol: string): [number, number] {
@@ -62,6 +77,21 @@ const COINGECKO_IDS: Record<string, string> = {
   ETH: 'ethereum',
   SOL: 'solana',
   XRP: 'ripple',
+  TRX: 'tron',
+  ATOM: 'cosmos',
+  FIL: 'filecoin',
+  HBAR: 'hedera-hashgraph',
+  ALGO: 'algorand',
+  VET: 'vechain',
+  XLM: 'stellar',
+  ETC: 'ethereum-classic',
+  AAVE: 'aave',
+  ICP: 'internet-computer',
+  INJ: 'injective',
+  RUNE: 'thorchain',
+  OP: 'optimism',
+  FET: 'fetch-ai',
+  KAS: 'kaspa',
 };
 
 /**
@@ -247,9 +277,8 @@ function coinGeckoId(symbol: string): string {
 }
 
 function toMexcInterval(interval: string): string {
-  // MEXC uses same strings as Binance for most common intervals
-  const map: Record<string, string> = { '1m': '1m', '5m': '5m', '15m': '15m', '1h': '1h', '4h': '4h', '1d': '1d' };
-  return map[interval] ?? '1h';
+  const map: Record<string, string> = { '1m': '1m', '5m': '5m', '15m': '15m', '1h': '60m', '4h': '4h', '1d': '1d' };
+  return map[interval] ?? '60m';
 }
 
 function toBybitInterval(interval: string): string {

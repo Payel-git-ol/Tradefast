@@ -11,8 +11,8 @@ export interface RiskLimit {
   maxRiskPerTradePercent: number;
 }
 
-export const defaultRiskLimit = (): RiskLimit => ({
-  dailyLossLimit: Money.of(100),
-  maxPositionSize: Money.of(500),
+export const defaultRiskLimit = (accountBalance = 10_000): RiskLimit => ({
+  dailyLossLimit: Money.of(Math.max(100, Math.round(accountBalance * 0.01))),
+  maxPositionSize: Money.of(Math.round(accountBalance)),
   maxRiskPerTradePercent: 1,
 });
