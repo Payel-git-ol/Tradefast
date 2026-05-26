@@ -6,8 +6,9 @@ import React, { useCallback, useRef, useState } from 'react';
 import type { Lostfast } from '../app/lostfast.js';
 import { COMMANDS, completeCommand, parseCommand, suggestCommands, type CommandSpec } from './commands.js';
 import { OutputLine, type OutputItem } from './output.js';
-import { saveTheme } from './preferences.js';
+import { saveTheme, saveExchange } from './preferences.js';
 import { getTheme, themeNames, type CliTheme, type ThemeName } from './theme.js';
+import { getExchange, exchangeNames, type ExchangeName } from './exchanges.js';
 
 export interface AppProps {
   app: Lostfast;
@@ -50,6 +51,43 @@ function ThemeSelector({
   );
 }
 
+function ExchangeSelector({
+  theme,
+  selectedIndex,
+  current,
+}: {
+  theme: CliTheme;
+  selectedIndex: number;
+  current: ExchangeName;
+}): React.ReactElement {
+  return (
+    <Box
+      flexDirection="column"
+      borderStyle="round"
+      borderColor={theme.colors.border}
+      paddingX={1}
+      marginTop={1}
+    >
+      <Text bold color={theme.colors.accent}>
+        Select exchange
+      </Text>
+      {exchangeNames().map((name, index) => {
+        const option = getExchange(name);
+        const selected = index === selectedIndex;
+        const isCurrent = option.name === current;
+
+        return (
+          <Text key={name} color={selected ? theme.colors.info : undefined}>
+            {selected ? '> ' : '  '}
+            <Text bold={selected}>{option.label.padEnd(8)}</Text>
+            {isCurrent ? <Text color={theme.colors.muted}> current</Text> : null}
+          </Text>
+        );
+      })}
+    </Box>
+  );
+}
+
 /**
  * The interactive shell. A static banner and transcript scroll above a single
  * input line — the same layout as the Gemini CLI. All side effects go through
@@ -65,6 +103,9 @@ export function App({ app, version, apiUrl }: AppProps): React.ReactElement {
   const [suggestions, setSuggestions] = useState<CommandSpec[]>([]);
   const [themeSelectorOpen, setThemeSelectorOpen] = useState(false);
   const [selectedThemeIndex, setSelectedThemeIndex] = useState(0);
+  const [exchangeSelectorOpen, setExchangeSelectorOpen] = useState(false);
+  const [selectedExchangeIndex, setSelectedExchangeIndex] = useState(0);
+  const [exchange, setExchange] = useState<ExchangeName>(() => getExchange(app.config.exchange).name as ExchangeName);
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState<{ message: string; step: number; totalSteps: number } | null>(null);
   const nextId = useRef(1);
@@ -90,6 +131,12 @@ export function App({ app, version, apiUrl }: AppProps): React.ReactElement {
     setThemeSelectorOpen(true);
   }, [theme.name]);
 
+  const openExchangeSelector = useCallback(() => {
+    const currentIndex = exchangeNames().findIndex((name) => name === exchange);
+    setSelectedExchangeIndex(currentIndex >= 0 ? currentIndex : 0);
+    setExchangeSelectorOpen(true);
+  }, [exchange]);
+
   const applyTheme = useCallback(
     (name: ThemeName) => {
       const next = getTheme(name);
@@ -99,6 +146,17 @@ export function App({ app, version, apiUrl }: AppProps): React.ReactElement {
       push({ kind: 'text', text: `Theme: ${next.label}`, color: next.colors.info });
     },
     [push],
+  );
+
+  const applyExchange = useCallback(
+    (name: ExchangeName) => {
+      const next = getExchange(name);
+      setExchange(next.name as ExchangeName);
+      setExchangeSelectorOpen(false);
+      void saveExchange(next.name as ExchangeName);
+      push({ kind: 'text', text: `Exchange: ${next.label}`, color: theme.colors.info });
+    },
+    [push, theme],
   );
 
   useInput((_input, key) => {
@@ -111,6 +169,19 @@ export function App({ app, version, apiUrl }: AppProps): React.ReactElement {
         setSelectedThemeIndex((index) => (index + 1) % themeNames().length);
       } else if (key.return) {
         applyTheme(themeNames()[selectedThemeIndex]);
+      }
+      return;
+    }
+
+    if (exchangeSelectorOpen && !busy) {
+      if (key.escape) {
+        setExchangeSelectorOpen(false);
+      } else if (key.upArrow) {
+        setSelectedExchangeIndex((index) => (index - 1 + exchangeNames().length) % exchangeNames().length);
+      } else if (key.downArrow) {
+        setSelectedExchangeIndex((index) => (index + 1) % exchangeNames().length);
+      } else if (key.return) {
+        applyExchange(exchangeNames()[selectedExchangeIndex]);
       }
       return;
     }
@@ -160,6 +231,21 @@ export function App({ app, version, apiUrl }: AppProps): React.ReactElement {
         push({ kind: 'text', text: `Theme: ${next.label}`, color: next.colors.info });
         return;
       }
+      if (name === 'exchange') {
+        if (args.length === 0) {
+          openExchangeSelector();
+          return;
+        }
+        const next = getExchange(args[0]);
+        if (next.name !== args[0].toLowerCase()) {
+          push({ kind: 'error', text: `Unknown exchange "${args[0]}". Available: ${exchangeNames().join(', ')}` });
+          return;
+        }
+        setExchange(next.name as ExchangeName);
+        void saveExchange(next.name as ExchangeName);
+        push({ kind: 'text', text: `Exchange: ${next.label}`, color: theme.colors.info });
+        return;
+      }
       if (name === 'strategies') {
         push({ kind: 'strategies', list: app.strategies() });
         return;
@@ -195,7 +281,7 @@ export function App({ app, version, apiUrl }: AppProps): React.ReactElement {
         setProgress(null);
       }
     },
-    [apiUrl, app, openThemeSelector, push, quit, theme],
+    [apiUrl, app, openThemeSelector, openExchangeSelector, push, quit, theme],
   );
 
   const onSubmit = useCallback(
@@ -225,6 +311,8 @@ export function App({ app, version, apiUrl }: AppProps): React.ReactElement {
         <Box flexDirection="column">
           {themeSelectorOpen ? (
             <ThemeSelector theme={theme} selectedIndex={selectedThemeIndex} />
+          ) : exchangeSelectorOpen ? (
+            <ExchangeSelector theme={theme} selectedIndex={selectedExchangeIndex} current={exchange} />
           ) : (
             <>
               <Box>

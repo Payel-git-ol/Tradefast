@@ -3,11 +3,13 @@ import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 
 import type { ThemeName } from './theme.js';
+import type { ExchangeName } from './exchanges.js';
 
 const PREF_PATH = join(homedir(), '.lostfast', 'preferences.json');
 
 export interface UserPreferences {
   theme?: ThemeName;
+  exchange?: ExchangeName;
 }
 
 export async function loadPreferences(): Promise<UserPreferences> {
@@ -29,4 +31,8 @@ export async function savePreferences(prefs: Partial<UserPreferences>): Promise<
 
 export async function saveTheme(name: ThemeName): Promise<void> {
   await savePreferences({ theme: name });
+}
+
+export async function saveExchange(name: ExchangeName): Promise<void> {
+  await savePreferences({ exchange: name });
 }

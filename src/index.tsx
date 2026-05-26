@@ -10,7 +10,8 @@ import { App } from './cli/App.js';
 import { renderBannerArt } from './cli/ascii.js';
 import { COMMANDS, parseCommand } from './cli/commands.js';
 import { getTheme, themeGradient, themeNames, type ThemeName } from './cli/theme.js';
-import { loadPreferences, saveTheme } from './cli/preferences.js';
+import { getExchange, exchangeNames, type ExchangeName } from './cli/exchanges.js';
+import { loadPreferences, saveTheme, saveExchange } from './cli/preferences.js';
 import { renderTradeLogLines } from './cli/trade-log.js';
 import { loadConfig } from './config.js';
 
@@ -55,6 +56,18 @@ async function runHeadless(command: string): Promise<number> {
       await saveTheme(theme.name as ThemeName);
     }
     process.stdout.write(args[0] ? `Theme: ${theme.label}\n` : `Themes: ${themeNames().join(', ')}\n`);
+    return 0;
+  }
+  if (name === 'exchange') {
+    const ex = getExchange(args[0]);
+    if (args[0] && ex.name !== args[0].toLowerCase()) {
+      process.stderr.write(`Unknown exchange "${args[0]}". Available: ${exchangeNames().join(', ')}\n`);
+      return 1;
+    }
+    if (args[0]) {
+      await saveExchange(ex.name as ExchangeName);
+    }
+    process.stdout.write(args[0] ? `Exchange: ${ex.label}\n` : `Exchanges: ${exchangeNames().join(', ')}\n`);
     return 0;
   }
   if (name === 'exit') return 0;
@@ -129,7 +142,8 @@ async function main(): Promise<void> {
   const saved = await loadPreferences();
   const baseConfig = loadConfig();
   const effectiveTheme = saved.theme ?? baseConfig.theme;
-  const config = loadConfig({ theme: effectiveTheme });
+  const effectiveExchange = saved.exchange ?? baseConfig.exchange;
+  const config = loadConfig({ theme: effectiveTheme, exchange: effectiveExchange });
   const app = await Lostfast.create(config);
   const backend = config.apiEnabled
     ? await startLostfastBackend(app, { host: config.apiHost, port: config.apiPort })

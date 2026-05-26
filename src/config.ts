@@ -6,6 +6,7 @@ export interface LostfastConfig {
   accountBalance: number;
   model: string;
   theme: string;
+  exchange: string;
   apiEnabled: boolean;
   apiHost: string;
   apiPort: number;
@@ -32,6 +33,7 @@ export function loadConfig(overrides: Partial<LostfastConfig> = {}): LostfastCon
     accountBalance: overrides.accountBalance ?? Number(process.env.LOSTFAST_ACCOUNT_BALANCE ?? 10_000),
     model: overrides.model ?? process.env.LOSTFAST_AI_MODEL ?? 'claude-opus-4-7',
     theme: overrides.theme ?? process.env.LOSTFAST_THEME ?? 'violet',
+    exchange: overrides.exchange ?? process.env.LOSTFAST_EXCHANGE ?? 'bybit',
     apiEnabled: overrides.apiEnabled ?? envFlag('LOSTFAST_API', true),
     apiHost: overrides.apiHost ?? process.env.LOSTFAST_API_HOST ?? '127.0.0.1',
     apiPort: overrides.apiPort ?? Number(process.env.LOSTFAST_API_PORT ?? 0),

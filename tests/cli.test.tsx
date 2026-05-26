@@ -7,6 +7,7 @@ import { App } from '../src/cli/App.js';
 import { completeCommand, parseCommand, suggestCommands } from '../src/cli/commands.js';
 import { OutputLine } from '../src/cli/output.js';
 import { getTheme, themeNames } from '../src/cli/theme.js';
+import { getExchange, exchangeNames, type ExchangeName } from '../src/cli/exchanges.js';
 import { renderTradeLogLines } from '../src/cli/trade-log.js';
 import { Money } from '../src/domain/money.js';
 import type { RunReport } from '../src/pipeline/collector.js';
@@ -20,6 +21,7 @@ const fakeApp = {
     accountBalance: 10_000,
     model: 'test-model',
     theme: 'violet',
+    exchange: 'bybit',
     apiEnabled: true,
     apiHost: '127.0.0.1',
     apiPort: 0,
@@ -44,6 +46,11 @@ describe('command autocomplete', () => {
   it('parses theme command arguments', () => {
     expect(parseCommand('/theme ocean')).toMatchObject({ name: 'theme', token: 'theme', args: ['ocean'] });
     expect(parseCommand('/news')).toMatchObject({ name: 'news', token: 'news', args: [] });
+  });
+
+  it('parses exchange command arguments', () => {
+    expect(parseCommand('/exchange bybit')).toMatchObject({ name: 'exchange', token: 'exchange', args: ['bybit'] });
+    expect(parseCommand('exchange')).toMatchObject({ name: 'exchange', token: 'exchange', args: [] });
   });
 
   it('renders the interactive shell and accepts input', async () => {
@@ -78,6 +85,22 @@ describe('command autocomplete', () => {
     expect(lastFrame()).toContain('type a command');
     unmount();
   });
+
+  it('applies a new exchange via direct command without crashing', async () => {
+    const tallStdout = { rows: 80, columns: 120, write: () => {}, on: () => {}, removeListener: () => {} } as any;
+    const { lastFrame, stdin, unmount } = render(
+      <App app={fakeApp} version="0.0.0-test" apiUrl="http://127.0.0.1:8787/graphql" />,
+      { stdout: tallStdout },
+    );
+
+    stdin.write('/exchange mexc');
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    stdin.write('\r');
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(lastFrame()).toContain('type a command');
+    unmount();
+  });
 });
 
 describe('cli themes', () => {
@@ -85,6 +108,15 @@ describe('cli themes', () => {
     expect(themeNames()).toEqual(['violet', 'ocean', 'ember', 'forest', 'mono']);
     expect(getTheme('ocean').colors.info).not.toBe(getTheme('ember').colors.info);
     expect(getTheme('unknown').name).toBe('violet');
+  });
+});
+
+describe('cli exchanges', () => {
+  it('lists Binance, OKX, Bybit, MEXC and defaults to bybit', () => {
+    expect(exchangeNames()).toEqual(['binance', 'okx', 'bybit', 'mexc']);
+    expect(getExchange().name).toBe('bybit');
+    expect(getExchange('mexc').label).toBe('MEXC');
+    expect(getExchange('unknown').name).toBe('bybit');
   });
 });
 
