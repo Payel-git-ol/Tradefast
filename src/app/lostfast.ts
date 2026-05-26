@@ -2,6 +2,7 @@ import { createDb, type DbHandle } from '../db/client.js';
 import { LostfastStore } from '../db/store.js';
 import type { AnalyticsRow } from '../db/store.js';
 import { loadConfig, type LostfastConfig } from '../config.js';
+import type { Candle } from '../domain/candle.js';
 import { CollectionPipeline, type ProgressListener, type RunReport } from '../pipeline/collector.js';
 import { createResilientMarketSourceFor } from '../services/market-data.js';
 import {
@@ -26,6 +27,7 @@ export interface CurrencyForecast {
   report: RunReport;
   price: number | null;
   newsConsensus: InstrumentConsensus[];
+  candles: Candle[];
 }
 
 export interface PersistedNewsCrawlReport extends NewsCrawlReport {
@@ -128,7 +130,14 @@ export class Lostfast {
         c.instrument.toUpperCase() === symbol.toUpperCase(),
     );
 
-    return { symbol, report, price, newsConsensus: currencyNews };
+    const candles = await this.store.getCandles(symbol, this.config.interval);
+
+    return { symbol, report, price, newsConsensus: currencyNews, candles };
+  }
+
+  /** Read back persisted candles for chart rendering. */
+  getCandles(symbol: string, interval: string): Promise<Candle[]> {
+    return this.store.getCandles(symbol, interval);
   }
 
   /** `/clear` — prune outdated runs; the general search table is preserved. */

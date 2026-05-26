@@ -270,6 +270,7 @@ export function App({ app, version, apiUrl }: AppProps): React.ReactElement {
         try {
           const forecast = await app.forecastCurrency(symbol, (e) => setProgress(e));
           push({ kind: 'run', report: forecast.report });
+          push({ kind: 'chart', data: { symbol, interval: app.config.interval, candles: forecast.candles } });
 
           if (forecast.price != null) {
             push({
@@ -466,6 +467,7 @@ export function App({ app, version, apiUrl }: AppProps): React.ReactElement {
         try {
           const forecast = await app.forecastCurrency(symbol, (e) => setProgress(e));
           push({ kind: 'run', report: forecast.report });
+          push({ kind: 'chart', data: { symbol, interval: app.config.interval, candles: forecast.candles } });
           if (forecast.price != null) {
             push({ kind: 'text', text: `${symbol} last price: ${forecast.price}`, color: theme.colors.info });
           }
