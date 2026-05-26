@@ -177,12 +177,32 @@ describe('run output', () => {
   it('renders a bordered trade log table with entry, stop-loss, and target prices', () => {
     expect(renderTradeLogLines(report)).toEqual([
       'Trade Log',
-      '╭──────────┬────────┬───────┬─────────────╮',
-      '│ Currency │ TP     │ SL    │ Entry price │',
-      '├──────────┼────────┼───────┼─────────────┤',
-      '│ BTCUSDT  │ 110.00 │ 95.00 │ 100.00      │',
-      '╰──────────┴────────┴───────┴─────────────╯',
+      '╭──────────┬───────────┬────────┬───────┬─────────────╮',
+      '│ Currency │ Direction │ TP     │ SL    │ Entry price │',
+      '├──────────┼───────────┼────────┼───────┼─────────────┤',
+      '│ BTCUSDT  │ long      │ 110.00 │ 95.00 │ 100.00      │',
+      '╰──────────┴───────────┴────────┴───────┴─────────────╯',
     ]);
+  });
+
+  it('renders short trade direction and reverses target/stop placement', () => {
+    const shortReport: RunReport = {
+      ...report,
+      symbols: [
+        {
+          ...report.symbols[0],
+          analysis: {
+            ...report.symbols[0].analysis,
+            evaluated: report.symbols[0].analysis.evaluated.map((item) => ({
+              ...item,
+              signal: { ...item.signal, direction: 'short' },
+            })),
+          },
+        },
+      ],
+    };
+
+    expect(renderTradeLogLines(shortReport)).toContain('│ BTCUSDT  │ short     │ 90.00 │ 105.00 │ 100.00      │');
   });
 
   it('uses the bordered trade log in interactive output', () => {
@@ -194,8 +214,8 @@ describe('run output', () => {
 
     const frame = lastFrame();
     expect(frame).toContain('Trade Log');
-    expect(frame).toContain('╭──────────┬────────┬───────┬─────────────╮');
-    expect(frame).toContain('│ BTCUSDT  │ 110.00 │ 95.00 │ 100.00      │');
+    expect(frame).toContain('╭──────────┬───────────┬────────┬───────┬─────────────╮');
+    expect(frame).toContain('│ BTCUSDT  │ long      │ 110.00 │ 95.00 │ 100.00      │');
     expect(frame).not.toContain('# Trade Log');
     expect(frame).not.toContain('| Currency |');
     expect(frame).not.toContain('strongest:');
@@ -221,6 +241,6 @@ describe('run output', () => {
       ],
     };
 
-    expect(renderTradeLogLines(noActionReport)).toContain('│ BTCUSDT  │    │    │ 100.00      │');
+    expect(renderTradeLogLines(noActionReport)).toContain('│ BTCUSDT  │           │    │    │ 100.00      │');
   });
 });

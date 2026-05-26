@@ -225,6 +225,9 @@ All configuration is environment-driven (see `.env.example`):
 | `LOSTFAST_SCRAPE`         | `0`                           | Set to `1` to enable the Playwright scraping pillar.           |
 | `LOSTFAST_NEWS_SOURCES_FILE` | `src/config/news-sources.json` | Optional custom JSON source list for `/news`.                |
 | `LOSTFAST_NEWS_LIMIT`     | `8`                           | Default max accepted items per source during `/news`.          |
+| `LOSTFAST_NEWS_DEPTH`     | `2`                           | Link depth for source-local event/article crawling.            |
+| `LOSTFAST_NEWS_PAGE_LIMIT`| `8`                           | Maximum pages to visit per configured news source.             |
+| `LOSTFAST_NEWS_LINKS_PER_PAGE` | `6`                      | Maximum follow-up links queued from one crawled page.          |
 | `ANTHROPIC_API_KEY`       | _(unset → heuristic)_        | When set, the AI advisor calls the Anthropic API.              |
 | `LOSTFAST_AI_MODEL`       | `claude-opus-4-7`             | Model used by the Anthropic advisor.                           |
 
@@ -287,9 +290,11 @@ node dist/index.js news
 ```
 
 The crawler uses a lazy headless Chromium instance, scrolls each source page,
-extracts likely article/event links, normalizes URLs and deduplicates by source
-and title. A failing source is recorded in the crawl report but does not stop
-the remaining sources.
+extracts likely article/event links, then follows source-local event and article
+URLs within the configured depth/page budget. Detail pages are captured from
+their own heading/metadata/body text, URLs are normalized, and items are
+deduplicated by source and title. A failing source is recorded in the crawl
+report but does not stop the remaining sources; a failing child page is skipped.
 
 ---
 

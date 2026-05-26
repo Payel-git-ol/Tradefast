@@ -54,6 +54,9 @@ export interface NewsPageFetcher {
 
 export interface NewsCrawlOptions {
   maxItemsPerSource?: number;
+  maxDepth?: number;
+  maxPagesPerSource?: number;
+  maxLinksPerPage?: number;
   timeoutMs?: number;
   scrollPasses?: number;
   settleMs?: number;
@@ -88,6 +91,9 @@ export interface NewsCrawlReport {
 export type NewsProgressListener = (event: NewsCrawlProgress) => void;
 
 const DEFAULT_MAX_ITEMS_PER_SOURCE = 8;
+const DEFAULT_MAX_DEPTH = 2;
+const DEFAULT_MAX_PAGES_PER_SOURCE = 8;
+const DEFAULT_MAX_LINKS_PER_PAGE = 6;
 const DEFAULT_TIMEOUT_MS = 20_000;
 const DEFAULT_SCROLL_PASSES = 2;
 const DEFAULT_SETTLE_MS = 700;
@@ -118,6 +124,9 @@ export async function createNewsCrawler(): Promise<NewsCrawler> {
   const sources = await loadNewsSources();
   return new NewsCrawler(sources, new PlaywrightNewsPageFetcher(), {
     maxItemsPerSource: envNumber('LOSTFAST_NEWS_LIMIT', DEFAULT_MAX_ITEMS_PER_SOURCE),
+    maxDepth: envNonNegativeInteger('LOSTFAST_NEWS_DEPTH', DEFAULT_MAX_DEPTH),
+    maxPagesPerSource: envNumber('LOSTFAST_NEWS_PAGE_LIMIT', DEFAULT_MAX_PAGES_PER_SOURCE),
+    maxLinksPerPage: envNumber('LOSTFAST_NEWS_LINKS_PER_PAGE', DEFAULT_MAX_LINKS_PER_PAGE),
   });
 }
 
@@ -146,7 +155,7 @@ export class NewsCrawler {
         emit({ phase: 'fetch', sourceId: source.id, message: `Crawling ${source.title}` });
         try {
           const limit = this.maxItemsFor(source);
-          const snapshot = await this.fetcher.fetch(source, {
+          const snapshot = await this.fetchSourceGraph(source, {
             timeoutMs: this.options.timeoutMs ?? DEFAULT_TIMEOUT_MS,
             scrollPasses: this.options.scrollPasses ?? DEFAULT_SCROLL_PASSES,
             settleMs: this.options.settleMs ?? DEFAULT_SETTLE_MS,
@@ -184,6 +193,46 @@ export class NewsCrawler {
 
   private maxItemsFor(source: NewsSource): number {
     return this.options.maxItemsPerSource ?? source.maxItems ?? DEFAULT_MAX_ITEMS_PER_SOURCE;
+  }
+
+  private async fetchSourceGraph(source: NewsSource, fetchOptions: NewsFetchOptions): Promise<NewsPageSnapshot> {
+    const rootUrl = normalizeUrl(source.url, source.url) ?? source.url;
+    const maxDepth = Math.max(0, Math.floor(this.options.maxDepth ?? DEFAULT_MAX_DEPTH));
+    const maxPages = Math.max(1, Math.floor(this.options.maxPagesPerSource ?? DEFAULT_MAX_PAGES_PER_SOURCE));
+    const maxLinksPerPage = Math.max(1, Math.floor(this.options.maxLinksPerPage ?? DEFAULT_MAX_LINKS_PER_PAGE));
+    const queue: { url: string; depth: number }[] = [{ url: rootUrl, depth: 0 }];
+    const queued = new Set<string>([rootUrl]);
+    const visited = new Set<string>();
+    const candidates: NewsCandidate[] = [];
+    let pageTitle: string | undefined;
+
+    while (queue.length > 0 && visited.size < maxPages) {
+      const current = queue.shift();
+      if (!current || visited.has(current.url)) continue;
+      visited.add(current.url);
+
+      try {
+        const snapshot = await this.fetcher.fetch({ ...source, url: current.url }, fetchOptions);
+        pageTitle ??= snapshot.pageTitle;
+        const pageCandidates =
+          current.depth === 0
+            ? excludeCurrentPageCandidate(snapshot.candidates, rootUrl, source, snapshot.pageTitle)
+            : snapshot.candidates;
+        candidates.push(...pageCandidates);
+
+        if (current.depth >= maxDepth) continue;
+        for (const url of followUpUrls(source, current.url, pageCandidates, visited, maxLinksPerPage)) {
+          if (visited.size + queue.length >= maxPages) break;
+          if (queued.has(url)) continue;
+          queued.add(url);
+          queue.push({ url, depth: current.depth + 1 });
+        }
+      } catch (error) {
+        if (current.depth === 0) throw error;
+      }
+    }
+
+    return { pageTitle, candidates };
   }
 
   private now(): Date {
@@ -295,6 +344,37 @@ function extractCandidatesFromPage({
     const normalized = clean(value);
     return normalized ? normalized.slice(0, 500) : undefined;
   };
+  const attr = (selector: string, name: string): string =>
+    clean(doc.querySelector?.(selector)?.getAttribute?.(name) ?? '');
+  const firstText = (selector: string): string => clean(doc.querySelector?.(selector)?.textContent ?? '');
+  const currentPageCandidate = (): NewsCandidate | undefined => {
+    const title = clean(
+      firstText('article h1') ||
+        firstText('main h1') ||
+        firstText('h1') ||
+        attr('meta[property="og:title"]', 'content') ||
+        attr('meta[name="twitter:title"]', 'content') ||
+        doc.title,
+    );
+    if (!title) return undefined;
+
+    const summary = cleanOptional(
+      attr('meta[name="description"]', 'content') ||
+        attr('meta[property="og:description"]', 'content') ||
+        doc.querySelector?.('article, main')?.textContent ||
+        doc.body?.textContent,
+    );
+    const timeNode = doc.querySelector?.('time[datetime], time, [datetime]');
+    const publishedAt = timeNode?.getAttribute?.('datetime') ?? undefined;
+    const canonical = attr('link[rel="canonical"]', 'href') || baseUrl;
+    let url: string;
+    try {
+      url = new URL(canonical, baseUrl).toString();
+    } catch {
+      url = baseUrl;
+    }
+    return { title, url, summary, publishedAt };
+  };
 
   const selectors = [
     'article a[href]',
@@ -321,6 +401,13 @@ function extractCandidatesFromPage({
 
   const out: NewsCandidate[] = [];
   const seen = new Set<string>();
+  const self = currentPageCandidate();
+  if (self) {
+    const key = `${self.url ?? baseUrl}\n${self.title.toLowerCase()}`;
+    seen.add(key);
+    out.push(self);
+  }
+  if (out.length >= maxCandidates) return out.slice(0, maxCandidates);
   for (const anchor of anchors) {
     const href = anchor.getAttribute?.('href');
     const title = clean(anchor.textContent || anchor.getAttribute?.('aria-label') || anchor.getAttribute?.('title') || '');
@@ -345,6 +432,97 @@ function extractCandidatesFromPage({
   }
 
   return out;
+}
+
+function excludeCurrentPageCandidate(
+  candidates: readonly NewsCandidate[],
+  pageUrl: string,
+  source: NewsSource,
+  pageTitle?: string,
+): NewsCandidate[] {
+  const normalizedPageUrl = normalizeUrl(pageUrl, pageUrl);
+  return candidates.filter((candidate) => {
+    if (normalizeUrl(candidate.url, pageUrl) !== normalizedPageUrl) return true;
+    const title = normalizeText(candidate.title).toLowerCase();
+    if (!title) return false;
+    const sourceTitle = normalizeText(source.title).toLowerCase();
+    const browserTitle = normalizeText(pageTitle).toLowerCase();
+    if (title === sourceTitle || title === browserTitle) return false;
+    return !isGenericSourceRootTitle(source.kind, title);
+  });
+}
+
+function followUpUrls(
+  source: NewsSource,
+  pageUrl: string,
+  candidates: readonly NewsCandidate[],
+  visited: ReadonlySet<string>,
+  maxLinks: number,
+): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const candidate of candidates) {
+    if (out.length >= maxLinks) break;
+    const title = normalizeText(candidate.title);
+    if (!isLikelyNewsTitle(title)) continue;
+    const url = normalizeUrl(candidate.url, pageUrl);
+    if (!url || seen.has(url) || visited.has(url) || url === normalizeUrl(pageUrl, pageUrl)) continue;
+    if (!isSourceLocalUrl(source.url, url) || !isCrawlableSourcePath(source, url)) continue;
+    seen.add(url);
+    out.push(url);
+  }
+  return out;
+}
+
+function isSourceLocalUrl(sourceUrl: string, targetUrl: string): boolean {
+  try {
+    return new URL(sourceUrl).origin === new URL(targetUrl).origin;
+  } catch {
+    return false;
+  }
+}
+
+const BLOCKED_CRAWL_PATH_PARTS = [
+  '/account',
+  '/accounts',
+  '/advert',
+  '/auth',
+  '/contact',
+  '/login',
+  '/logout',
+  '/portfolio',
+  '/register',
+  '/search',
+  '/signup',
+  '/terms',
+];
+const STATIC_CRAWL_PATH_RE = /\.(?:avif|css|csv|gif|ico|jpe?g|js|json|mp3|mp4|pdf|png|svg|webp|xml|zip)$/i;
+
+function isCrawlableSourcePath(source: NewsSource, targetUrl: string): boolean {
+  let path: string;
+  try {
+    path = new URL(targetUrl).pathname.toLowerCase();
+  } catch {
+    return false;
+  }
+  if (STATIC_CRAWL_PATH_RE.test(path)) return false;
+  if (BLOCKED_CRAWL_PATH_PARTS.some((part) => path.includes(part))) return false;
+
+  if (source.kind === 'economic-calendar') {
+    return path.includes('/economic-calendar/') || path.includes('/analysis/') || path.includes('/news/');
+  }
+
+  return path.length > 1;
+}
+
+function isGenericSourceRootTitle(kind: NewsSourceKind, title: string): boolean {
+  if (kind === 'economic-calendar') {
+    return title === 'economic calendar' || title === 'экономический календарь' || title === 'календарь';
+  }
+  if (kind === 'news') {
+    return title === 'news' || title === 'новости';
+  }
+  return title === 'markets' || title === 'рынки';
 }
 
 function validateNewsSources(value: unknown): NewsSource[] {
@@ -421,4 +599,9 @@ function normalizeDate(value: unknown): string | undefined {
 function envNumber(name: string, fallback: number): number {
   const parsed = Number(process.env[name]);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function envNonNegativeInteger(name: string, fallback: number): number {
+  const parsed = Number(process.env[name]);
+  return Number.isInteger(parsed) && parsed >= 0 ? parsed : fallback;
 }
