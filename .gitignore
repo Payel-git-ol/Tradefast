@@ -27,4 +27,8 @@ test-results/
 # Experiment artifacts
 experiments/*.ansi
 experiments/*.err
+experiments/*.html
 experiments/lostfast-cli.png
+
+# Playwright MCP scratch output
+.playwright-mcp/
