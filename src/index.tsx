@@ -11,6 +11,7 @@ import { renderBannerArt } from './cli/ascii.js';
 import { COMMANDS, parseCommand } from './cli/commands.js';
 import { getTheme, themeGradient, themeNames, type ThemeName } from './cli/theme.js';
 import { loadPreferences, saveTheme } from './cli/preferences.js';
+import { renderTradeLogLines } from './cli/trade-log.js';
 import { loadConfig } from './config.js';
 
 /** Read this package's version, walking up from the module location. */
@@ -90,13 +91,7 @@ async function runHeadless(command: string): Promise<number> {
       }
     } else {
       const runReport = await (name === 'start' ? app.start(reportProgress) : app.update(reportProgress));
-      for (const s of runReport.symbols) {
-        const a = s.analysis.analytics;
-        process.stdout.write(
-          `${s.symbol}: consensus ${a.consensusScore.toFixed(2)} (↑${a.longCount} ↓${a.shortCount}) — ${s.insight}\n`,
-        );
-      }
-      process.stdout.write(`Run #${runReport.runId} (${runReport.kind}) completed in ${runReport.durationMs}ms.\n`);
+      process.stdout.write(`${renderTradeLogLines(runReport).join('\n')}\n`);
     }
     return 0;
   } finally {
