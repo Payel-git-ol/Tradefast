@@ -2,14 +2,15 @@
  * Generate a colored before/after HTML comparison of the candlestick chart.
  * Run: npx tsx experiments/chart-before-after.tsx
  * Output: experiments/chart-before-after.html
+ *
+ * "Before" reproduces the earlier single-column candles (PR #20, first pass)
+ * that the maintainer called too small; "After" is the wide, taller chart.
  */
 import { writeFileSync } from 'node:fs';
 
 import type { Candle } from '../src/domain/candle.js';
-import { buildChartLayout, fmtPrice } from '../src/cli/chart.js';
-import { getTheme } from '../src/cli/theme.js';
+import { buildChartLayout } from '../src/cli/chart.js';
 
-const theme = getTheme('violet');
 const LONG = '#22c55e';
 const SHORT = '#ef4444';
 const MUTED = '#9ca3af';
@@ -36,37 +37,9 @@ function makeCandles(n: number): Candle[] {
 const esc = (s: string): string => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 const span = (s: string, color?: string): string => `<span style="color:${color ?? MUTED}">${esc(s)}</span>`;
 
-// ── "Before": the original blocky renderer (8 rows, solid bodies, no wicks). ──
-function before(candles: Candle[]): string {
-  const visible = candles.slice(-50);
-  const height = 8;
-  const allPrices = visible.flatMap((c) => [c.high, c.low]);
-  const maxPrice = Math.max(...allPrices);
-  const minPrice = Math.min(...allPrices);
-  const pad = (maxPrice - minPrice) * 0.05;
-  const top = maxPrice + pad;
-  const bottom = Math.max(0, minPrice - pad);
-  const range = top - bottom;
-  const lines: string[] = [span(` BTCUSDT · 1h · last ${visible.length} candles`, ACCENT)];
-  for (let row = 0; row < height; row++) {
-    const priceLow = top - (range * (row + 1)) / height;
-    const priceHigh = top - (range * row) / height;
-    const mid = (priceLow + priceHigh) / 2;
-    let line = span(fmtPrice(mid).padStart(8) + ' ', MUTED);
-    for (const c of visible) {
-      const bodyTop = Math.max(c.open, c.close);
-      const bodyBot = Math.min(c.open, c.close);
-      const on = bodyBot <= priceHigh && bodyTop >= priceLow;
-      line += on ? span('█', c.close >= c.open ? LONG : SHORT) : ' ';
-    }
-    lines.push(line);
-  }
-  return lines.join('\n');
-}
-
-// ── "After": the new candlestick renderer. ──
-function after(candles: Candle[]): string {
-  const { rows, footer, shown } = buildChartLayout(candles, { height: 12, maxCandles: 50, labelWidth: 8 });
+/** Render a chart with the given geometry to a colored HTML block. */
+function panel(candles: Candle[], opts: { height: number; candleWidth: number; gap: number; maxCandles: number }): string {
+  const { rows, footer, shown } = buildChartLayout(candles, { ...opts, labelWidth: 8 });
   const lines: string[] = [span(`BTCUSDT · 1h · last ${shown} candles`, ACCENT)];
   for (const r of rows) {
     let line = span(r.label + ' ', MUTED);
@@ -79,8 +52,10 @@ function after(candles: Candle[]): string {
   return lines.join('\n');
 }
 
-const candles = makeCandles(50);
-void theme;
+const candles = makeCandles(60);
+
+const before = panel(candles, { height: 12, candleWidth: 1, gap: 0, maxCandles: 50 });
+const after = panel(candles, { height: 18, candleWidth: 3, gap: 1, maxCandles: 26 });
 
 const html = `<!doctype html><html><head><meta charset="utf-8"><style>
   body { background:#0b0e14; margin:0; padding:24px; font-family: 'DejaVu Sans Mono','Menlo','Consolas',monospace; }
@@ -88,10 +63,10 @@ const html = `<!doctype html><html><head><meta charset="utf-8"><style>
   .panel { border:1px solid #6b7280; border-radius:8px; padding:10px 14px; display:inline-block; }
   pre { margin:0; font-size:14px; line-height:1.15; letter-spacing:0; white-space:pre; }
 </style></head><body>
-  <h2>Before — flat blocks, no wicks (issue #19)</h2>
-  <div class="panel"><pre>${before(candles)}</pre></div>
-  <h2>After — proper candlesticks with wicks &amp; half-cell bodies</h2>
-  <div class="panel"><pre>${after(candles)}</pre></div>
+  <h2>Before — thin single-column candles (too small, PR #20 first pass)</h2>
+  <div class="panel"><pre>${before}</pre></div>
+  <h2>After — bigger chart: wide candle bodies, centred wicks, more height</h2>
+  <div class="panel"><pre>${after}</pre></div>
 </body></html>`;
 
 const out = new URL('./chart-before-after.html', import.meta.url);

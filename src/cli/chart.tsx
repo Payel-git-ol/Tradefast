@@ -39,6 +39,10 @@ export interface ChartLayout {
   footer: string;
   /** Candles actually drawn (after width clamping). */
   shown: number;
+  /** Columns each candle body spans. */
+  candleWidth: number;
+  /** Empty columns between adjacent candles. */
+  gap: number;
 }
 
 const GLYPH = {
@@ -54,22 +58,26 @@ const GLYPH = {
 type Coverage = 'body' | 'wick' | 'empty';
 
 /**
- * Build a deterministic candlestick layout. Each candle is one column wide; the
- * body (open↔close) is drawn with block glyphs and the wick (high↔low) with a
- * thin vertical line, doubling the vertical resolution with half-blocks so even
- * small bodies stay visible. Kept pure (no Ink/colour) so it can be unit-tested.
+ * Build a deterministic candlestick layout. Each candle is `candleWidth` columns
+ * wide (separated by `gap` blank columns) so the bodies read as solid bars like a
+ * real trading chart; the body (open↔close) is filled with block glyphs and the
+ * wick (high↔low) is a thin vertical line down the centre column. Two half-blocks
+ * per character row double the vertical resolution so even small bodies and dojis
+ * stay visible. Kept pure (no Ink/colour) so it can be unit-tested.
  */
 export function buildChartLayout(
   candles: readonly Candle[],
-  opts: { height?: number; maxCandles?: number; labelWidth?: number } = {},
+  opts: { height?: number; maxCandles?: number; labelWidth?: number; candleWidth?: number; gap?: number } = {},
 ): ChartLayout {
-  const height = Math.max(4, opts.height ?? 12);
-  const maxCandles = Math.max(1, opts.maxCandles ?? 50);
+  const height = Math.max(4, opts.height ?? 16);
+  const candleWidth = Math.max(1, opts.candleWidth ?? 3);
+  const gap = Math.max(0, opts.gap ?? 1);
+  const maxCandles = Math.max(1, opts.maxCandles ?? 40);
   const labelWidth = Math.max(4, opts.labelWidth ?? 8);
 
   const visible = candles.slice(-maxCandles);
   if (visible.length === 0) {
-    return { rows: [], footer: '', shown: 0 };
+    return { rows: [], footer: '', shown: 0, candleWidth, gap };
   }
 
   const highsArr = visible.map((c) => c.high);
@@ -99,6 +107,12 @@ export function buildChartLayout(
     return 'empty';
   };
 
+  // The wick is only drawn down the body's centre column; the rest of a wick
+  // sub-cell is blank so the candle reads as a thin stick above/below a wide body.
+  const center = Math.floor(candleWidth / 2);
+  const colCoverage = (cov: Coverage, isCenter: boolean): Coverage =>
+    cov === 'wick' && !isCenter ? 'empty' : cov;
+
   const glyphFor = (tsv: Coverage, bsv: Coverage): string => {
     if (tsv === 'body' && bsv === 'body') return GLYPH.bodyFull;
     if (tsv === 'body') return GLYPH.bodyTop; // body occupies the top half
@@ -114,12 +128,20 @@ export function buildChartLayout(
     const topSub = row * 2;
     const botSub = row * 2 + 1;
 
-    const cells: ChartCell[] = visible.map((c) => {
-      const tsv = classify(topSub, c);
-      const bsv = classify(botSub, c);
-      const ch = glyphFor(tsv, bsv);
-      const up: boolean | null = ch === GLYPH.empty ? null : c.close >= c.open;
-      return { ch, up };
+    const cells: ChartCell[] = [];
+    visible.forEach((c, ci) => {
+      const up = c.close >= c.open;
+      const tCov = classify(topSub, c);
+      const bCov = classify(botSub, c);
+      for (let col = 0; col < candleWidth; col++) {
+        const isCenter = col === center;
+        const ch = glyphFor(colCoverage(tCov, isCenter), colCoverage(bCov, isCenter));
+        cells.push({ ch, up: ch === GLYPH.empty ? null : up });
+      }
+      // Blank columns separating this candle from the next one.
+      if (ci < visible.length - 1) {
+        for (let g = 0; g < gap; g++) cells.push({ ch: GLYPH.empty, up: null });
+      }
     });
 
     // Label every other row to keep the price scale readable.
@@ -131,7 +153,18 @@ export function buildChartLayout(
   const last = visible[visible.length - 1];
   const footer = `H ${fmtPrice(maxPrice).trim()} · L ${fmtPrice(minPrice).trim()} · last ${fmtPrice(last.close).trim()}`;
 
-  return { rows, footer, shown: visible.length };
+  return { rows, footer, shown: visible.length, candleWidth, gap };
+}
+
+/** Merge a row's cells into runs of the same direction so each run is one <Text>. */
+function toSegments(cells: ChartCell[]): { text: string; up: boolean | null }[] {
+  const segs: { text: string; up: boolean | null }[] = [];
+  for (const cell of cells) {
+    const last = segs[segs.length - 1];
+    if (last && last.up === cell.up) last.text += cell.ch;
+    else segs.push({ text: cell.ch, up: cell.up });
+  }
+  return segs;
 }
 
 export function CandleChartView({
@@ -146,12 +179,27 @@ export function CandleChartView({
   if (candles.length === 0) return <></>;
 
   const labelWidth = 8;
-  // Keep the chart within the terminal width so candles never wrap. Account for
-  // the value-axis gutter, the rounded border and horizontal padding.
-  const columns = stdout?.columns ?? 80;
-  const maxCandles = Math.max(10, Math.min(60, columns - labelWidth - 6));
+  const candleWidth = 3;
+  const gap = 1;
 
-  const { rows, footer, shown } = buildChartLayout(candles, { height: 12, maxCandles, labelWidth });
+  // Size the chart to the terminal: keep candles wide and the body count clamped
+  // so the chart never wraps. Account for the value-axis gutter, the rounded
+  // border and horizontal padding.
+  const columns = stdout?.columns ?? 80;
+  const terminalRows = stdout?.rows ?? 24;
+  const slot = candleWidth + gap; // columns consumed per candle (body + trailing gap)
+  const plotWidth = Math.max(slot, columns - labelWidth - 1 - 4);
+  const maxCandles = Math.max(8, Math.min(80, Math.floor((plotWidth + gap) / slot)));
+  // A taller chart gives the candles room to breathe; clamp to the terminal.
+  const height = Math.max(14, Math.min(24, terminalRows - 6));
+
+  const { rows, footer, shown } = buildChartLayout(candles, {
+    height,
+    maxCandles,
+    labelWidth,
+    candleWidth,
+    gap,
+  });
   if (rows.length === 0) return <></>;
 
   const colorFor = (up: boolean | null): string | undefined =>
@@ -165,9 +213,9 @@ export function CandleChartView({
       {rows.map((r, i) => (
         <Box key={i}>
           <Text color={theme.colors.muted}>{r.label} </Text>
-          {r.cells.map((cell, j) => (
-            <Text key={j} color={colorFor(cell.up)}>
-              {cell.ch}
+          {toSegments(r.cells).map((seg, j) => (
+            <Text key={j} color={colorFor(seg.up)}>
+              {seg.text}
             </Text>
           ))}
         </Box>

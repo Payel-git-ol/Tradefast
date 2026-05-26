@@ -18,10 +18,22 @@ function candle(partial: Partial<Candle> & { open: number; close: number }): Can
   };
 }
 
-/** Glyphs of a single candle's column, top → bottom. */
-function column(candles: Candle[], opts = {}): { ch: string; up: boolean | null }[] {
-  const { rows } = buildChartLayout(candles, { maxCandles: candles.length, ...opts });
-  return rows.map((r) => r.cells[r.cells.length - 1]);
+type Opts = { height?: number; maxCandles?: number; labelWidth?: number; candleWidth?: number; gap?: number };
+
+/** All glyphs of candle `index`'s columns, row by row, top → bottom. */
+function candleColumns(candles: Candle[], index: number, opts: Opts = {}): { ch: string; up: boolean | null }[][] {
+  const layout = buildChartLayout(candles, { maxCandles: candles.length, ...opts });
+  const { candleWidth, gap } = layout;
+  const start = index * (candleWidth + gap);
+  return layout.rows.map((r) => r.cells.slice(start, start + candleWidth));
+}
+
+/** The centre column of candle `index` (where the wick lives), top → bottom. */
+function centerColumn(candles: Candle[], index = 0, opts: Opts = {}): { ch: string; up: boolean | null }[] {
+  const layout = buildChartLayout(candles, { maxCandles: candles.length, ...opts });
+  const { candleWidth, gap } = layout;
+  const center = index * (candleWidth + gap) + Math.floor(candleWidth / 2);
+  return layout.rows.map((r) => r.cells[center]);
 }
 
 describe('fmtPrice', () => {
@@ -36,11 +48,11 @@ describe('fmtPrice', () => {
 
 describe('buildChartLayout', () => {
   it('returns nothing for an empty series', () => {
-    expect(buildChartLayout([])).toEqual({ rows: [], footer: '', shown: 0 });
+    expect(buildChartLayout([])).toMatchObject({ rows: [], footer: '', shown: 0 });
   });
 
   it('draws wicks above and below the body of a candle', () => {
-    const col = column([candle({ open: 100, close: 110, high: 120, low: 90 })], { height: 12 });
+    const col = centerColumn([candle({ open: 100, close: 110, high: 120, low: 90 })], 0, { height: 12 });
     const glyphs = col.map((c) => c.ch);
 
     const drawn = col.filter((c) => c.ch !== ' ');
@@ -62,16 +74,46 @@ describe('buildChartLayout', () => {
     expect(lastBody).toBeLessThan(lastDrawn);
   });
 
+  it('draws a body several columns wide with the wick down the centre only', () => {
+    const cols = candleColumns([candle({ open: 100, close: 110, high: 120, low: 90 })], 0, {
+      height: 12,
+      candleWidth: 3,
+      gap: 1,
+    });
+    // A body row: every column is a block glyph.
+    const bodyRow = cols.find((row) => row.every((c) => BODY.has(c.ch)));
+    expect(bodyRow).toBeDefined();
+    expect(bodyRow).toHaveLength(3);
+
+    // A wick row: only the centre column is drawn, the flanks are blank.
+    const wickRow = cols.find((row) => WICK.has(row[1].ch));
+    expect(wickRow).toBeDefined();
+    expect(wickRow![0].ch).toBe(' ');
+    expect(wickRow![2].ch).toBe(' ');
+  });
+
+  it('separates adjacent candles with a blank gap column', () => {
+    const candles = [
+      candle({ open: 100, close: 110, high: 115, low: 95 }),
+      candle({ open: 110, close: 120, high: 125, low: 105 }),
+    ];
+    const layout = buildChartLayout(candles, { maxCandles: 2, candleWidth: 3, gap: 1 });
+    // Column index 3 is the gap between candle 0 (cols 0-2) and candle 1 (cols 4-6).
+    expect(layout.rows.every((r) => r.cells[3].ch === ' ')).toBe(true);
+    // No trailing gap after the final candle.
+    expect(layout.rows[0].cells).toHaveLength(2 * 3 + 1);
+  });
+
   it('colours bullish candles long and bearish candles short', () => {
-    const up = column([candle({ open: 100, close: 110, high: 115, low: 95 })]);
-    const down = column([candle({ open: 110, close: 100, high: 115, low: 95 })]);
+    const up = candleColumns([candle({ open: 100, close: 110, high: 115, low: 95 })], 0).flat();
+    const down = candleColumns([candle({ open: 110, close: 100, high: 115, low: 95 })], 0).flat();
     expect(up.filter((c) => c.up !== null).every((c) => c.up === true)).toBe(true);
     expect(down.filter((c) => c.up !== null).every((c) => c.up === false)).toBe(true);
   });
 
   it('keeps a doji body visible even when open equals close', () => {
-    const col = column([candle({ open: 100, close: 100, high: 108, low: 92 })], { height: 12 });
-    expect(col.some((c) => BODY.has(c.ch))).toBe(true);
+    const cols = candleColumns([candle({ open: 100, close: 100, high: 108, low: 92 })], 0, { height: 12 });
+    expect(cols.flat().some((c) => BODY.has(c.ch))).toBe(true);
   });
 
   it('never crashes on a perfectly flat series', () => {
@@ -86,9 +128,10 @@ describe('buildChartLayout', () => {
     const many = Array.from({ length: 80 }, (_, i) =>
       candle({ openTime: i, open: 100 + i, close: 101 + i, high: 102 + i, low: 99 + i }),
     );
-    const layout = buildChartLayout(many, { maxCandles: 30 });
+    const layout = buildChartLayout(many, { maxCandles: 30, candleWidth: 3, gap: 1 });
     expect(layout.shown).toBe(30);
-    expect(layout.rows[0].cells).toHaveLength(30);
+    // 30 candles × 3 columns + 29 single-column gaps.
+    expect(layout.rows[0].cells).toHaveLength(30 * 3 + 29);
     // Footer reflects the most recent (highest) close.
     expect(layout.footer).toContain('last 180.00');
   });
