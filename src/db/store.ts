@@ -280,6 +280,7 @@ export class LostfastStore {
         publishedAt: row.publishedAt ? new Date(row.publishedAt) : null,
         contentHash: row.contentHash,
         fetchedAt: new Date(row.fetchedAt),
+        comments: row.comments ?? null,
       })
       .onConflictDoUpdate({
         target: [newsItems.sourceId, newsItems.title],
@@ -292,6 +293,7 @@ export class LostfastStore {
           publishedAt: row.publishedAt ? new Date(row.publishedAt) : null,
           contentHash: row.contentHash,
           fetchedAt: new Date(row.fetchedAt),
+          comments: row.comments ?? null,
         },
       });
 

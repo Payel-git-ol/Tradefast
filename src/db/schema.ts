@@ -165,6 +165,7 @@ export const newsItems = pgTable(
     publishedAt: timestamp('published_at', { withTimezone: true }),
     contentHash: varchar('content_hash', { length: 64 }).notNull(),
     fetchedAt: timestamp('fetched_at', { withTimezone: true }).notNull().defaultNow(),
+    comments: text('comments'),
   },
   (t) => ({
     uniq: uniqueIndex('news_items_source_title_uq').on(t.sourceId, t.title),

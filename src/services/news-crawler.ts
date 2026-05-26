@@ -36,11 +36,15 @@ export interface NewsItem {
   publishedAt?: string;
   fetchedAt: string;
   contentHash: string;
+  /** User comments extracted from the article page, joined by newlines. */
+  comments?: string;
 }
 
 export interface NewsPageSnapshot {
   pageTitle?: string;
   candidates: NewsCandidate[];
+  /** Raw comment text from the page, joined by newlines. */
+  comments?: string;
 }
 
 export interface NewsFetchOptions {
@@ -165,7 +169,10 @@ export class NewsCrawler {
             settleMs: this.options.settleMs ?? DEFAULT_SETTLE_MS,
             maxCandidates: limit * 4,
           });
-          const normalized = normalizeCandidates(source, snapshot.candidates, limit, this.now());
+          const allComments = [snapshot.comments]
+            .filter(Boolean)
+            .join('\n');
+          const normalized = normalizeCandidates(source, snapshot.candidates, limit, this.now(), allComments || undefined);
           items.push(...normalized.items);
           reports.push({
             sourceId: source.id,
@@ -271,7 +278,8 @@ export class PlaywrightNewsPageFetcher implements NewsPageFetcher {
         baseUrl: source.url,
         maxCandidates: options.maxCandidates,
       })) as NewsCandidate[];
-      return { pageTitle, candidates };
+      const comments = (await page.evaluate(extractCommentsFromPage)) as string | undefined;
+      return { pageTitle, candidates, comments: comments || undefined };
     } finally {
       await page.close();
     }
@@ -297,6 +305,7 @@ function normalizeCandidates(
   candidates: readonly NewsCandidate[],
   limit: number,
   fetchedAt: Date,
+  comments?: string,
 ): { items: NewsItem[]; considered: number } {
   const items: NewsItem[] = [];
   const seen = new Set<string>();
@@ -325,6 +334,7 @@ function normalizeCandidates(
       publishedAt,
       fetchedAt: fetchedAt.toISOString(),
       contentHash: sha256([source.id, title, url ?? '', summary ?? '', publishedAt ?? ''].join('\n')),
+      comments,
     };
     items.push(item);
     if (items.length >= limit) break;
@@ -436,6 +446,84 @@ function extractCandidatesFromPage({
   }
 
   return out;
+}
+
+/**
+ * Extracts user comments from article pages using common DOM selectors.
+ * Runs inside the browser via page.evaluate. Returns a string of all
+ * unique comment texts joined by newlines, or empty string if none found.
+ */
+function extractCommentsFromPage(): string {
+  const doc = (globalThis as { document?: any }).document;
+  if (!doc?.querySelectorAll) return '';
+
+  const seen = new Set<string>();
+  const parts: string[] = [];
+
+  const push = (text: string) => {
+    const clean = text.replace(/\s+/g, ' ').trim();
+    if (clean.length >= 10 && !seen.has(clean)) {
+      seen.add(clean);
+      parts.push(clean);
+    }
+  };
+
+  // Common comment selectors across news sites, forums, and social platforms
+  const selectors = [
+    // Generic comment containers
+    '[class*="comment"]',
+    '[class*="Comment"]',
+    '[id*="comment"]',
+    '[id*="Comment"]',
+    // Forum-style (Reddit, Discourse, etc.)
+    '[data-testid="comment"]',
+    '.usertext-body',
+    '.md',
+    '.thing .entry',
+    // News article comment sections
+    '.article-comments',
+    '.news-comments',
+    '.entry-comments',
+    '.post-comments',
+    '.comments-list',
+    '.comment-list',
+    '.comments-section',
+    '.comment-section',
+    // Article-specific comment areas
+    '.b-comments',
+    '.b-article__comments',
+    '.article__comments',
+    '.post__comments',
+    // Social media embedded comments
+    '.fb-comments',
+    '.twitter-tweet',
+    // Time elements that often wrap comment metadata
+    'article time',
+    // General long-text containers inside comment areas
+    '.comment__text',
+    '.comment_text',
+    '.comment-body',
+    '.comment-content',
+    '.entry-content',
+    // WordPress / common CMS
+    '.comment-author',
+    '.comment-metadata',
+  ];
+
+  for (const sel of selectors) {
+    for (const el of Array.from(doc.querySelectorAll(sel)) as any[]) {
+      const text = el.textContent || '';
+      if (text.trim().length >= 10) push(text);
+    }
+  }
+
+  // Also look for <article> elements with short class names (common in comments)
+  for (const el of Array.from(doc.querySelectorAll('article')) as any[]) {
+    const text = el.textContent || '';
+    if (text.trim().length >= 20) push(text);
+  }
+
+  return parts.slice(0, 200).join('\n');
 }
 
 function excludeCurrentPageCandidate(
