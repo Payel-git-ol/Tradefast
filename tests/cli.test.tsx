@@ -105,7 +105,23 @@ describe('command autocomplete', () => {
 
 describe('cli themes', () => {
   it('provides multiple named palettes with distinct text colors', () => {
-    expect(themeNames()).toEqual(['violet', 'ocean', 'ember', 'forest', 'mono']);
+    expect(themeNames()).toEqual([
+      'violet',
+      'ocean',
+      'ember',
+      'forest',
+      'mono',
+      'midnight',
+      'sunset',
+      'lime',
+      'cyberpunk',
+      'nord',
+      'royal',
+      'candy',
+      'dracula',
+      'sakura',
+      'matrix',
+    ]);
     expect(getTheme('ocean').colors.info).not.toBe(getTheme('ember').colors.info);
     expect(getTheme('unknown').name).toBe('violet');
   });
