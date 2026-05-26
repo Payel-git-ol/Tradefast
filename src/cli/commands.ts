@@ -14,7 +14,8 @@ export const COMMANDS: CommandSpec[] = [
   { name: '/strategies', summary: 'List every available strategy' },
   { name: '/theme', summary: 'Open the theme selector or switch CLI colour themes' },
   { name: '/exchange', summary: 'Select target exchange (Binance, OKX, Bybit, MEXC)' },
-  { name: '/operating-mode-time', summary: 'Select trading timeframe (1m, 5m, 10m, 15m, 20m, 30m, 1h)' },
+  { name: '/operating-mode', summary: 'Select trading style (long-term, medium-term, scalping)' },
+  { name: '/operating-mode-time', summary: 'Select trading timeframe (1m, 5m, 10m, 15m, 20m, 30m, 1h, 4h, 1d)' },
   { name: '/api', summary: 'Show the in-process GraphQL API endpoint' },
   { name: '/help', summary: 'Show this help' },
   { name: '/currency', summary: 'Select a specific currency for detailed forecast, news, and rate analysis' },
@@ -31,6 +32,7 @@ export type CommandName =
   | 'strategies'
   | 'theme'
   | 'exchange'
+  | 'operating-mode'
   | 'operating-mode-time'
   | 'currency'
   | 'api'
@@ -58,6 +60,7 @@ export function parseCommand(raw: string): ParsedCommand {
     case 'strategies':
     case 'theme':
     case 'exchange':
+    case 'operating-mode':
     case 'operating-mode-time':
     case 'currency':
     case 'api':

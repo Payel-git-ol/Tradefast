@@ -1,20 +1,24 @@
 import { Box, Text, useApp, useInput } from 'ink';
 import Spinner from 'ink-spinner';
 import TextInput from 'ink-text-input';
-import React, { useCallback, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 
 import type { Lostfast } from '../app/lostfast.js';
 import { COMMANDS, completeCommand, parseCommand, suggestCommands, type CommandSpec } from './commands.js';
 import { OutputLine, type OutputItem } from './output.js';
-import { saveTheme, saveExchange, saveInterval } from './preferences.js';
+import { saveTheme, saveExchange, saveInterval, saveMode } from './preferences.js';
 import { getTheme, themeNames, type CliTheme, type ThemeName } from './theme.js';
 import { getExchange, exchangeNames, type ExchangeName } from './exchanges.js';
 import { getInterval, intervalNames, type IntervalName } from './intervals.js';
+import { getMode, modeNames, type ModeName } from './modes.js';
 
 export interface AppProps {
   app: Lostfast;
   version: string;
   apiUrl?: string;
+  /** When true (first run, no saved mode), the operating-mode popup opens on
+   *  launch so the user picks a trading style before starting. */
+  promptOperatingMode?: boolean;
 }
 
 function ThemeSelector({
@@ -126,6 +130,44 @@ function IntervalSelector({
   );
 }
 
+function ModeSelector({
+  theme,
+  selectedIndex,
+  current,
+}: {
+  theme: CliTheme;
+  selectedIndex: number;
+  current: ModeName;
+}): React.ReactElement {
+  return (
+    <Box
+      flexDirection="column"
+      borderStyle="round"
+      borderColor={theme.colors.border}
+      paddingX={1}
+      marginTop={1}
+    >
+      <Text bold color={theme.colors.accent}>
+        Select operating mode
+      </Text>
+      {modeNames().map((name, index) => {
+        const option = getMode(name);
+        const selected = index === selectedIndex;
+        const isCurrent = option.name === current;
+
+        return (
+          <Text key={name} color={selected ? theme.colors.info : undefined}>
+            {selected ? '> ' : '  '}
+            <Text bold={selected}>{option.label.padEnd(14)}</Text>
+            <Text color={theme.colors.muted}>{option.description}</Text>
+            {isCurrent ? <Text color={theme.colors.muted}> (current)</Text> : null}
+          </Text>
+        );
+      })}
+    </Box>
+  );
+}
+
 function CurrencySelector({
   theme,
   selectedIndex,
@@ -165,7 +207,7 @@ function CurrencySelector({
  * input line — the same layout as the Gemini CLI. All side effects go through
  * the injected {@link Lostfast} facade; this component only manages UI state.
  */
-export function App({ app, version, apiUrl }: AppProps): React.ReactElement {
+export function App({ app, version, apiUrl, promptOperatingMode }: AppProps): React.ReactElement {
   const { exit } = useApp();
   const [theme, setTheme] = useState(() => getTheme(app.config.theme));
   const [history, setHistory] = useState<OutputItem[]>([
@@ -182,6 +224,9 @@ export function App({ app, version, apiUrl }: AppProps): React.ReactElement {
   const [intervalSelectorOpen, setIntervalSelectorOpen] = useState(false);
   const [selectedIntervalIndex, setSelectedIntervalIndex] = useState(0);
   const [interval, setInterval] = useState<IntervalName>(() => getInterval(app.config.interval).name as IntervalName);
+  const [modeSelectorOpen, setModeSelectorOpen] = useState(false);
+  const [selectedModeIndex, setSelectedModeIndex] = useState(0);
+  const [mode, setMode] = useState<ModeName>(() => getMode(app.config.mode).name as ModeName);
   const [currencySelectorOpen, setCurrencySelectorOpen] = useState(false);
   const [selectedCurrencyIndex, setSelectedCurrencyIndex] = useState(0);
   const [busy, setBusy] = useState(false);
@@ -222,9 +267,22 @@ export function App({ app, version, apiUrl }: AppProps): React.ReactElement {
     setIntervalSelectorOpen(true);
   }, [interval]);
 
+  const openModeSelector = useCallback(() => {
+    const currentIndex = modeNames().findIndex((name) => name === mode);
+    setSelectedModeIndex(currentIndex >= 0 ? currentIndex : 0);
+    setModeSelectorOpen(true);
+  }, [mode]);
+
   const openCurrencySelector = useCallback(() => {
     setSelectedCurrencyIndex(0);
     setCurrencySelectorOpen(true);
+  }, []);
+
+  // First launch (no saved mode yet): ask the user to pick a trading style
+  // before they start, as required by the issue. Runs once on mount.
+  useEffect(() => {
+    if (promptOperatingMode) openModeSelector();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const applyTheme = useCallback(
@@ -258,6 +316,31 @@ export function App({ app, version, apiUrl }: AppProps): React.ReactElement {
       void saveInterval(next.name as IntervalName);
       app.setInterval(next.name);
       push({ kind: 'text', text: `Trading timeframe: ${next.label}`, color: theme.colors.info });
+    },
+    [app, push, theme],
+  );
+
+  const applyMode = useCallback(
+    (name: ModeName) => {
+      const next = getMode(name);
+      setMode(next.name as ModeName);
+      setModeSelectorOpen(false);
+      void saveMode(next.name as ModeName);
+      app.setMode(next.name);
+
+      // A mode is a trading horizon, so applying it also shifts the active
+      // timeframe to that horizon. The user can still fine-tune it afterwards
+      // with /operating-mode-time.
+      const tf = getInterval(next.interval);
+      setInterval(tf.name as IntervalName);
+      void saveInterval(tf.name as IntervalName);
+      app.setInterval(tf.name);
+
+      push({
+        kind: 'text',
+        text: `Operating mode: ${next.label} — ${next.description} (timeframe ${tf.label})`,
+        color: theme.colors.info,
+      });
     },
     [app, push, theme],
   );
@@ -337,6 +420,19 @@ export function App({ app, version, apiUrl }: AppProps): React.ReactElement {
         setSelectedIntervalIndex((index) => (index + 1) % intervalNames().length);
       } else if (key.return) {
         applyInterval(intervalNames()[selectedIntervalIndex]);
+      }
+      return;
+    }
+
+    if (modeSelectorOpen && !busy) {
+      if (key.escape) {
+        setModeSelectorOpen(false);
+      } else if (key.upArrow) {
+        setSelectedModeIndex((index) => (index - 1 + modeNames().length) % modeNames().length);
+      } else if (key.downArrow) {
+        setSelectedModeIndex((index) => (index + 1) % modeNames().length);
+      } else if (key.return) {
+        applyMode(modeNames()[selectedModeIndex]);
       }
       return;
     }
@@ -428,6 +524,19 @@ export function App({ app, version, apiUrl }: AppProps): React.ReactElement {
         void saveExchange(next.name as ExchangeName);
         app.setExchange(next.name);
         push({ kind: 'text', text: `Exchange: ${next.label} (live data source updated)`, color: theme.colors.info });
+        return;
+      }
+      if (name === 'operating-mode') {
+        if (args.length === 0) {
+          openModeSelector();
+          return;
+        }
+        const next = getMode(args[0]);
+        if (next.name !== args[0].toLowerCase()) {
+          push({ kind: 'error', text: `Unknown operating mode "${args[0]}". Available: ${modeNames().join(', ')}` });
+          return;
+        }
+        applyMode(next.name as ModeName);
         return;
       }
       if (name === 'operating-mode-time') {
@@ -522,7 +631,7 @@ export function App({ app, version, apiUrl }: AppProps): React.ReactElement {
         setProgress(null);
       }
     },
-    [apiUrl, app, openThemeSelector, openExchangeSelector, openIntervalSelector, openCurrencySelector, push, quit, theme],
+    [apiUrl, app, openThemeSelector, openExchangeSelector, openIntervalSelector, openModeSelector, openCurrencySelector, applyMode, push, quit, theme],
   );
 
   const onSubmit = useCallback(
@@ -561,6 +670,8 @@ export function App({ app, version, apiUrl }: AppProps): React.ReactElement {
             <ExchangeSelector theme={theme} selectedIndex={selectedExchangeIndex} current={exchange} />
           ) : intervalSelectorOpen ? (
             <IntervalSelector theme={theme} selectedIndex={selectedIntervalIndex} current={interval} />
+          ) : modeSelectorOpen ? (
+            <ModeSelector theme={theme} selectedIndex={selectedModeIndex} current={mode} />
           ) : currencySelectorOpen ? (
             <CurrencySelector theme={theme} selectedIndex={selectedCurrencyIndex} symbols={app.config.symbols} />
           ) : (
