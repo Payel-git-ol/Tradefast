@@ -1,4 +1,5 @@
 import type { RunReport, SymbolReport } from '../pipeline/collector.js';
+import { buildForecast } from '../strategies/forecast.js';
 
 interface TradeLogRow {
   currency: string;
@@ -33,45 +34,15 @@ function isFinitePrice(value: number | null | undefined): value is number {
   return typeof value === 'number' && Number.isFinite(value) && value > 0;
 }
 
+/** Map the shared forecast (single source of truth) onto a trade-log row. */
 function buildTradeLogRow(symbol: SymbolReport): TradeLogRow {
-  const entry = symbol.analysis.analytics.lastPrice;
-  const candidates = symbol.analysis.evaluated
-    .filter((item) => item.position && (item.signal.direction === 'long' || item.signal.direction === 'short'))
-    .sort((a, b) => {
-      const approvedDelta = Number(b.risk?.approved === true) - Number(a.risk?.approved === true);
-      return approvedDelta !== 0 ? approvedDelta : b.signal.strength - a.signal.strength;
-    });
-
-  const selected = candidates[0];
-  const direction =
-    selected?.signal.direction === 'long' || selected?.signal.direction === 'short' ? selected.signal.direction : '';
-  const stopDistance = selected?.position?.stopDistance;
-  if (!isFinitePrice(entry) || !isFinitePrice(stopDistance)) {
-    return {
-      currency: symbol.symbol,
-      direction,
-      tp: null,
-      sl: null,
-      entryPrice: isFinitePrice(entry) ? entry : null,
-    };
-  }
-
-  if (direction === 'short') {
-    return {
-      currency: symbol.symbol,
-      direction,
-      tp: entry - stopDistance * 2,
-      sl: entry + stopDistance,
-      entryPrice: entry,
-    };
-  }
-
+  const forecast = buildForecast(symbol.analysis);
   return {
-    currency: symbol.symbol,
-    direction,
-    tp: entry + stopDistance * 2,
-    sl: entry - stopDistance,
-    entryPrice: entry,
+    currency: forecast.symbol,
+    direction: forecast.direction,
+    tp: forecast.tp,
+    sl: forecast.sl,
+    entryPrice: forecast.entry,
   };
 }
 
