@@ -1,4 +1,5 @@
 import type { Candle } from '../domain/candle.js';
+import type { ExchangeName } from '../cli/exchanges.js';
 
 export interface MarketDataSource {
   readonly name: string;
@@ -64,20 +65,83 @@ export class CoinGeckoMarketData implements MarketDataSource {
   }
 }
 
-/** Live spot prices from the public MEXC ticker endpoint. */
-export class MexcTickerMarketData implements MarketDataSource {
+/** Real OHLCV klines from MEXC spot public API (Binance-compatible /klines). */
+export class MexcMarketData implements MarketDataSource {
   readonly name = 'mexc';
 
   constructor(private readonly baseUrl = process.env.LOSTFAST_MEXC_API ?? 'https://api.mexc.com') {}
 
   async getCandles(symbol: string, interval: string, limit: number): Promise<Candle[]> {
-    const url = `${this.baseUrl}/api/v3/ticker/price?symbol=${encodeURIComponent(symbol.toUpperCase())}`;
+    const iv = toMexcInterval(interval);
+    const url = `${this.baseUrl}/api/v3/klines?symbol=${symbol.toUpperCase()}&interval=${iv}&limit=${limit}`;
     const res = await fetch(url, { signal: AbortSignal.timeout(10_000) });
     if (!res.ok) throw new Error(`MEXC responded ${res.status}`);
-    const raw = (await res.json()) as { price?: string | number; symbol?: string };
-    const price = Number(raw.price);
-    if (!Number.isFinite(price) || price <= 0) throw new Error(`MEXC returned no price for ${symbol}`);
-    return candlesFromSpot(symbol, interval, limit, price);
+    const raw = (await res.json()) as unknown[][];
+    return raw.map((k) => ({
+      openTime: Number(k[0]),
+      open: Number(k[1]),
+      high: Number(k[2]),
+      low: Number(k[3]),
+      close: Number(k[4]),
+      volume: Number(k[5]),
+    }));
+  }
+}
+
+/** Real spot OHLCV klines from Bybit v5 public endpoint. */
+export class BybitMarketData implements MarketDataSource {
+  readonly name = 'bybit';
+
+  constructor(private readonly baseUrl = process.env.LOSTFAST_BYBIT_API ?? 'https://api.bybit.com') {}
+
+  async getCandles(symbol: string, interval: string, limit: number): Promise<Candle[]> {
+    const iv = toBybitInterval(interval);
+    const url = `${this.baseUrl}/v5/market/kline?category=spot&symbol=${symbol.toUpperCase()}&interval=${iv}&limit=${limit}`;
+    const res = await fetch(url, { signal: AbortSignal.timeout(10_000) });
+    if (!res.ok) throw new Error(`Bybit responded ${res.status}`);
+    const json = (await res.json()) as { retCode?: number; result?: { list?: unknown[][] } };
+    if (json.retCode && json.retCode !== 0) throw new Error(`Bybit error ${json.retCode}`);
+    const list = json.result?.list ?? [];
+    // Bybit returns newest-first → reverse for consistent oldest-first order
+    return [...list]
+      .reverse()
+      .map((k) => ({
+        openTime: Number(k[0]),
+        open: Number(k[1]),
+        high: Number(k[2]),
+        low: Number(k[3]),
+        close: Number(k[4]),
+        volume: Number(k[5]),
+      }));
+  }
+}
+
+/** Real spot OHLCV candles from OKX v5 public endpoint. */
+export class OkxMarketData implements MarketDataSource {
+  readonly name = 'okx';
+
+  constructor(private readonly baseUrl = process.env.LOSTFAST_OKX_API ?? 'https://www.okx.com') {}
+
+  async getCandles(symbol: string, interval: string, limit: number): Promise<Candle[]> {
+    const instId = toOkxInstId(symbol);
+    const bar = toOkxBar(interval);
+    const url = `${this.baseUrl}/api/v5/market/candles?instId=${instId}&bar=${bar}&limit=${limit}`;
+    const res = await fetch(url, { signal: AbortSignal.timeout(10_000) });
+    if (!res.ok) throw new Error(`OKX responded ${res.status}`);
+    const json = (await res.json()) as { code?: string; data?: unknown[][] };
+    if (json.code && json.code !== '0') throw new Error(`OKX error ${json.code}`);
+    const data = json.data ?? [];
+    // OKX returns newest-first → reverse
+    return [...data]
+      .reverse()
+      .map((k) => ({
+        openTime: Number(k[0]),
+        open: Number(k[1]),
+        high: Number(k[2]),
+        low: Number(k[3]),
+        close: Number(k[4]),
+        volume: Number(k[5]),
+      }));
   }
 }
 
@@ -127,6 +191,29 @@ function baseAsset(symbol: string): string {
 function coinGeckoId(symbol: string): string {
   const base = baseAsset(symbol);
   return COINGECKO_IDS[base] ?? base.toLowerCase();
+}
+
+function toMexcInterval(interval: string): string {
+  // MEXC uses same strings as Binance for most common intervals
+  const map: Record<string, string> = { '1m': '1m', '5m': '5m', '15m': '15m', '1h': '1h', '4h': '4h', '1d': '1d' };
+  return map[interval] ?? '1h';
+}
+
+function toBybitInterval(interval: string): string {
+  // Bybit v5: 1,3,5,15,30,60,120,240,360,720,D,W,M
+  const map: Record<string, string> = { '1m': '1', '5m': '5', '15m': '15', '1h': '60', '4h': '240', '1d': 'D' };
+  return map[interval] ?? '60';
+}
+
+function toOkxBar(interval: string): string {
+  // OKX: 1m,5m,15m,30m,1H,4H,1D,1W,1M
+  const map: Record<string, string> = { '1m': '1m', '5m': '5m', '15m': '15m', '1h': '1H', '4h': '4H', '1d': '1D' };
+  return map[interval] ?? '1H';
+}
+
+function toOkxInstId(symbol: string): string {
+  // OKX uses hyphenated pairs, e.g. BTC-USDT
+  return symbol.toUpperCase().replace(/(USDT|USDC|USD)$/, '-$1').replace(/--/g, '-');
 }
 
 function candlesFromSpot(symbol: string, interval: string, limit: number, spot: number): Candle[] {
@@ -182,12 +269,15 @@ export class ResilientMarketData implements MarketDataSource {
   }
 }
 
+/** @deprecated Use MexcMarketData (real klines). Temporary alias for backward compat. */
+export { MexcMarketData as MexcTickerMarketData };
+
 /**
  * Selects a market source from `LOSTFAST_MARKET_SOURCE`:
  *   - `synthetic` → deterministic offline data (great for demos/CI/tests),
  *   - `live`/`binance` → Binance only (fails if unreachable),
  *   - `coingecko` → CoinGecko simple price endpoint,
- *   - `mexc`      → MEXC ticker price endpoint,
+  *   - `mexc`      → MEXC real klines,
  *   - `resilient` (default) → live with synthetic fallback.
  */
 export function createMarketSource(): MarketDataSource {
@@ -197,11 +287,40 @@ export function createMarketSource(): MarketDataSource {
     case 'coingecko':
       return new CoinGeckoMarketData();
     case 'mexc':
-      return new MexcTickerMarketData();
+      return new MexcMarketData();
     case 'binance':
     case 'live':
       return new BinanceMarketData();
     default:
       return new ResilientMarketData();
   }
+}
+
+/**
+ * Creates a live market data source for the given exchange (Binance, Bybit, OKX, MEXC).
+ * Falls back to Binance if unknown. This is the preferred way when the user has
+ * selected an exchange via /exchange or LOSTFAST_EXCHANGE.
+ */
+export function createMarketSourceFor(exchange?: ExchangeName | string): MarketDataSource {
+  const ex = (exchange ?? 'binance').toLowerCase();
+  switch (ex) {
+    case 'bybit':
+      return new BybitMarketData();
+    case 'okx':
+      return new OkxMarketData();
+    case 'mexc':
+      return new MexcMarketData();
+    case 'binance':
+    default:
+      return new BinanceMarketData();
+  }
+}
+
+/**
+ * Resilient wrapper that uses the real exchange adapter for the chosen exchange
+ * and falls back to synthetic data when the exchange is unreachable.
+ */
+export function createResilientMarketSourceFor(exchange?: ExchangeName | string): MarketDataSource {
+  const live = createMarketSourceFor(exchange);
+  return new ResilientMarketData(live, new SyntheticMarketData(), true);
 }

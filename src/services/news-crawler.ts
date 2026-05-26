@@ -3,7 +3,9 @@ import { readFile } from 'node:fs/promises';
 
 import configuredNewsSources from '../config/news-sources.json' with { type: 'json' };
 
-export type NewsSourceKind = 'economic-calendar' | 'news' | 'market';
+export type NewsSourceKind = 'economic-calendar' | 'news' | 'market' | 'community';
+
+export type ExchangeCommunity = 'binance' | 'okx' | 'bybit' | 'mexc';
 
 export interface NewsSource {
   id: string;
@@ -12,6 +14,8 @@ export interface NewsSource {
   url: string;
   enabled?: boolean;
   maxItems?: number;
+  /** When kind==='community', indicates which exchange's community this source belongs to. */
+  exchange?: ExchangeCommunity;
 }
 
 export interface NewsCandidate {
@@ -91,9 +95,9 @@ export interface NewsCrawlReport {
 export type NewsProgressListener = (event: NewsCrawlProgress) => void;
 
 const DEFAULT_MAX_ITEMS_PER_SOURCE = 8;
-const DEFAULT_MAX_DEPTH = 2;
-const DEFAULT_MAX_PAGES_PER_SOURCE = 8;
-const DEFAULT_MAX_LINKS_PER_PAGE = 6;
+const DEFAULT_MAX_DEPTH = 3;           // deeper graph following per user request (not just 1 link)
+const DEFAULT_MAX_PAGES_PER_SOURCE = 20; // more aggressive page limit
+const DEFAULT_MAX_LINKS_PER_PAGE = 12;   // follow many more links per page
 const DEFAULT_TIMEOUT_MS = 20_000;
 const DEFAULT_SCROLL_PASSES = 2;
 const DEFAULT_SETTLE_MS = 700;
@@ -519,8 +523,8 @@ function isGenericSourceRootTitle(kind: NewsSourceKind, title: string): boolean 
   if (kind === 'economic-calendar') {
     return title === 'economic calendar' || title === 'экономический календарь' || title === 'календарь';
   }
-  if (kind === 'news') {
-    return title === 'news' || title === 'новости';
+  if (kind === 'news' || kind === 'community') {
+    return title === 'news' || title === 'новости' || title === 'community' || title === 'сообщество';
   }
   return title === 'markets' || title === 'рынки';
 }
@@ -536,8 +540,17 @@ function parseNewsSource(entry: unknown, index: number): NewsSource {
   const title = requireString(entry.title, `sources[${index}].title`);
   const url = requireString(entry.url, `sources[${index}].url`);
   const kind = requireString(entry.kind, `sources[${index}].kind`);
-  if (!['economic-calendar', 'news', 'market'].includes(kind)) {
-    throw new Error(`sources[${index}].kind must be economic-calendar, news, or market`);
+  if (!['economic-calendar', 'news', 'market', 'community'].includes(kind)) {
+    throw new Error(`sources[${index}].kind must be economic-calendar, news, market, or community`);
+  }
+
+  let exchange: ExchangeCommunity | undefined;
+  if (entry.exchange != null) {
+    const ex = String(entry.exchange).toLowerCase();
+    if (!['binance', 'okx', 'bybit', 'mexc'].includes(ex)) {
+      throw new Error(`sources[${index}].exchange must be one of binance, okx, bybit, mexc`);
+    }
+    exchange = ex as ExchangeCommunity;
   }
   try {
     new URL(url);
@@ -551,6 +564,7 @@ function parseNewsSource(entry: unknown, index: number): NewsSource {
     kind: kind as NewsSourceKind,
     enabled: typeof entry.enabled === 'boolean' ? entry.enabled : true,
     maxItems: typeof entry.maxItems === 'number' && entry.maxItems > 0 ? Math.floor(entry.maxItems) : undefined,
+    exchange,
   };
 }
 

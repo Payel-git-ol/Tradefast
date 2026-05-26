@@ -2,7 +2,7 @@ import type { LostfastStore, RunKind } from '../db/store.js';
 import { DEFAULT_PARAMETERS, type StrategyParameters } from '../domain/signal.js';
 import { AnalyticsService, type SymbolAnalysis } from '../services/analytics.js';
 import { createAdvisor, type AiAdvisor } from '../services/ai-advisor.js';
-import { createMarketSource, type MarketDataSource } from '../services/market-data.js';
+import { createResilientMarketSourceFor, type MarketDataSource } from '../services/market-data.js';
 import { createScraper, type Scraper } from '../services/scraping.js';
 import { KnowledgeBaseSearch, type SearchProvider } from '../services/search.js';
 
@@ -59,7 +59,7 @@ export type ProgressListener = (event: ProgressEvent) => void;
 export class CollectionPipeline {
   constructor(
     private readonly store: LostfastStore,
-    private readonly market: MarketDataSource = createMarketSource(),
+    private readonly market: MarketDataSource = createResilientMarketSourceFor(),
     private readonly analytics: AnalyticsService = new AnalyticsService(),
     private readonly search: SearchProvider = new KnowledgeBaseSearch(),
     private readonly advisor: AiAdvisor = createAdvisor(),

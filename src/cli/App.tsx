@@ -154,9 +154,10 @@ export function App({ app, version, apiUrl }: AppProps): React.ReactElement {
       setExchange(next.name as ExchangeName);
       setExchangeSelectorOpen(false);
       void saveExchange(next.name as ExchangeName);
-      push({ kind: 'text', text: `Exchange: ${next.label}`, color: theme.colors.info });
+      app.setExchange(next.name);
+      push({ kind: 'text', text: `Exchange: ${next.label} (live data source updated)`, color: theme.colors.info });
     },
-    [push, theme],
+    [app, push, theme],
   );
 
   useInput((_input, key) => {
@@ -243,7 +244,8 @@ export function App({ app, version, apiUrl }: AppProps): React.ReactElement {
         }
         setExchange(next.name as ExchangeName);
         void saveExchange(next.name as ExchangeName);
-        push({ kind: 'text', text: `Exchange: ${next.label}`, color: theme.colors.info });
+        app.setExchange(next.name);
+        push({ kind: 'text', text: `Exchange: ${next.label} (live data source updated)`, color: theme.colors.info });
         return;
       }
       if (name === 'strategies') {

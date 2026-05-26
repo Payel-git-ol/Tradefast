@@ -3,6 +3,7 @@ import { LostfastStore } from '../db/store.js';
 import type { AnalyticsRow } from '../db/store.js';
 import { loadConfig, type LostfastConfig } from '../config.js';
 import { CollectionPipeline, type ProgressListener, type RunReport } from '../pipeline/collector.js';
+import { createResilientMarketSourceFor } from '../services/market-data.js';
 import {
   createNewsCrawler,
   type NewsCrawler,
@@ -10,12 +11,14 @@ import {
   type NewsProgressListener,
 } from '../services/news-crawler.js';
 import { ALL_STRATEGIES } from '../strategies/registry.js';
+import { computeCrowdConsensus } from '../services/news-consensus.js';
 
 export interface StatusReport {
   driver: string;
   counts: Record<string, number>;
   latestRunId?: number;
   latestAnalytics: AnalyticsRow[];
+  crowdConsensus?: import('../services/news-consensus.js').InstrumentConsensus[];
 }
 
 export interface PersistedNewsCrawlReport extends NewsCrawlReport {
@@ -42,9 +45,19 @@ export class Lostfast {
   static async create(config: LostfastConfig = loadConfig()): Promise<Lostfast> {
     const handle = await createDb();
     const store = new LostfastStore(handle.db);
-    const pipeline = new CollectionPipeline(store);
+    const market = createResilientMarketSourceFor(config.exchange);
+    const pipeline = new CollectionPipeline(store, market);
     const newsCrawler = await createNewsCrawler();
     return new Lostfast(handle, store, pipeline, newsCrawler, config);
+  }
+
+  /** Updates the exchange used for market data on subsequent /start and /update.
+   *  Called by the interactive CLI when the user runs /exchange at runtime.
+   */
+  setExchange(name: string): void {
+    (this.config as any).exchange = name;
+    const market = createResilientMarketSourceFor(name);
+    (this as any).pipeline = new CollectionPipeline(this.store, market);
   }
 
   get driver(): string {
@@ -52,7 +65,8 @@ export class Lostfast {
   }
 
   /** `/start` — clear prior run data (keeping the search table) and analyse afresh. */
-  start(onProgress?: ProgressListener): Promise<RunReport> {
+  async start(onProgress?: ProgressListener): Promise<RunReport> {
+    await this.clearNewsConsensus(); // fresh big crowd table on every full start
     return this.pipeline.collect(
       'start',
       {
@@ -95,6 +109,8 @@ export class Lostfast {
       else if (result === 'updated') updated++;
       else unchanged++;
     }
+    // Rebuild the big crowd table from the fresh news (includes forex, macro, everything)
+    await this.rebuildNewsConsensus();
     return { ...crawlReport, inserted, updated, unchanged };
   }
 
@@ -102,11 +118,28 @@ export class Lostfast {
     const counts = await this.store.tableCounts();
     const latestRunId = await this.store.latestRunId();
     const latestAnalytics = latestRunId ? await this.store.latestAnalytics(latestRunId) : [];
-    return { driver: this.driver, counts, latestRunId, latestAnalytics };
+    const crowd = await this.store.getNewsConsensus(60); // big table — top 60 by interest
+    return { driver: this.driver, counts, latestRunId, latestAnalytics, crowdConsensus: crowd };
   }
 
   strategies(): { id: string; title: string }[] {
     return ALL_STRATEGIES.map((s) => ({ id: s.id, title: s.title }));
+  }
+
+  /** Rebuilds the big news-driven crowd consensus table (the large one with forex + macro + everything the crawler found). */
+  async rebuildNewsConsensus(): Promise<number> {
+    const items = await this.store.getRecentNewsItems(5000);
+    const consensus = computeCrowdConsensus(items);
+    await this.store.replaceNewsConsensus(consensus);
+    return consensus.length;
+  }
+
+  async getNewsCrowdConsensus(limit?: number) {
+    return this.store.getNewsConsensus(limit);
+  }
+
+  async clearNewsConsensus(): Promise<number> {
+    return this.store.clearNewsConsensus();
   }
 
   close(): Promise<void> {

@@ -23,6 +23,25 @@ const ISSUE_SOURCE_URLS = [
   'https://www.litefinance.org/ru/trading/forex-news/',
   'https://ru.euronews.com/tag/markets',
   'https://ru.tradingview.com/markets/',
+  'https://www.reddit.com/r/economy/',
+  'https://www.reddit.com/r/Finance/',
+  'https://www.reddit.com/r/stocks/',
+  'https://www.reddit.com/r/investing/',
+  'https://www.reddit.com/r/wallstreetbets/',
+  'https://www.reddit.com/r/StockMarket/',
+  'https://www.reddit.com/r/Forex/',
+  'https://www.reddit.com/r/CryptoCurrency/',
+  'https://www.reddit.com/r/econ/',
+  'https://www.reddit.com/r/FinancialNews/',
+  // Exchange-specific community sources (official blogs + key subreddits)
+  'https://www.binance.com/en/blog',
+  'https://www.reddit.com/r/binance/',
+  'https://www.bybit.com/en/blog',
+  'https://www.reddit.com/r/Bybit/',
+  'https://www.okx.com/learn',
+  'https://www.reddit.com/r/OKX/',
+  'https://www.mexc.com/blog',
+  'https://www.reddit.com/r/MEXC/',
 ];
 
 describe('news source configuration', () => {
