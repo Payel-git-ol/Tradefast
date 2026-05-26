@@ -5,10 +5,12 @@ import { fileURLToPath } from 'node:url';
 import { render } from 'ink';
 
 import { Lostfast } from './app/lostfast.js';
+import { startLostfastBackend, type LostfastBackendHandle } from './backend/server.js';
 import { App } from './cli/App.js';
 import { renderBannerArt } from './cli/ascii.js';
 import { COMMANDS, parseCommand } from './cli/commands.js';
-import { brandGradient } from './cli/theme.js';
+import { getTheme, themeGradient, themeNames } from './cli/theme.js';
+import { loadConfig } from './config.js';
 
 /** Read this package's version, walking up from the module location. */
 function readVersion(): string {
@@ -30,21 +32,37 @@ function readVersion(): string {
 
 /** Non-interactive execution for scripts, CI and Docker (`lostfast <command>`). */
 async function runHeadless(command: string): Promise<number> {
-  const { name } = parseCommand(command);
+  const { name, args } = parseCommand(command);
   if (name === 'unknown') {
     process.stderr.write(`Unknown command "${command}". Try: ${COMMANDS.map((c) => c.name).join(', ')}\n`);
     return 1;
   }
   if (name === 'help') {
-    process.stdout.write(`${brandGradient(renderBannerArt())}\n\n`);
+    const gradient = themeGradient(getTheme(process.env.LOSTFAST_THEME));
+    process.stdout.write(`${gradient(renderBannerArt())}\n\n`);
     for (const c of COMMANDS) process.stdout.write(`  ${c.name.padEnd(12)} ${c.summary}\n`);
+    return 0;
+  }
+  if (name === 'theme') {
+    const theme = getTheme(args[0]);
+    if (args[0] && theme.name !== args[0].toLowerCase()) {
+      process.stderr.write(`Unknown theme "${args[0]}". Available: ${themeNames().join(', ')}\n`);
+      return 1;
+    }
+    process.stdout.write(args[0] ? `Theme: ${theme.label}\n` : `Themes: ${themeNames().join(', ')}\n`);
     return 0;
   }
   if (name === 'exit') return 0;
 
-  const app = await Lostfast.create();
+  const config = loadConfig(name === 'api' ? { apiEnabled: true } : {});
+  const app = await Lostfast.create(config);
+  let backend: LostfastBackendHandle | null = null;
   try {
-    if (name === 'strategies') {
+    if (name === 'api') {
+      backend = await startLostfastBackend(app, { host: config.apiHost, port: config.apiPort });
+      process.stdout.write(`GraphQL API: ${backend.url}\n`);
+      await waitForShutdown();
+    } else if (name === 'strategies') {
       for (const s of app.strategies()) process.stdout.write(`  ${s.id.padEnd(20)} ${s.title}\n`);
     } else if (name === 'status') {
       const status = await app.status();
@@ -65,6 +83,7 @@ async function runHeadless(command: string): Promise<number> {
     }
     return 0;
   } finally {
+    if (backend) await backend.close();
     await app.close();
   }
 }
@@ -72,6 +91,18 @@ async function runHeadless(command: string): Promise<number> {
 /** Stream headless run progress to stderr so stdout stays parseable. */
 function reportProgress(event: { message: string; step: number; totalSteps: number }): void {
   process.stderr.write(`[${event.step}/${event.totalSteps}] ${event.message}\n`);
+}
+
+function waitForShutdown(): Promise<void> {
+  return new Promise((resolve) => {
+    const done = () => {
+      process.off('SIGINT', done);
+      process.off('SIGTERM', done);
+      resolve();
+    };
+    process.once('SIGINT', done);
+    process.once('SIGTERM', done);
+  });
 }
 
 async function main(): Promise<void> {
@@ -83,9 +114,17 @@ async function main(): Promise<void> {
     return;
   }
 
-  const app = await Lostfast.create();
-  const { waitUntilExit } = render(<App app={app} version={version} />);
-  await waitUntilExit();
+  const config = loadConfig();
+  const app = await Lostfast.create(config);
+  const backend = config.apiEnabled
+    ? await startLostfastBackend(app, { host: config.apiHost, port: config.apiPort })
+    : null;
+  try {
+    const { waitUntilExit } = render(<App app={app} version={version} apiUrl={backend?.url} />);
+    await waitUntilExit();
+  } finally {
+    if (backend) await backend.close();
+  }
 }
 
 main().catch((error) => {

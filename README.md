@@ -15,8 +15,8 @@ pluggable AI advisor — all from a polished interactive terminal UI.
 ## Highlights
 
 - **Gemini-CLI-style UI** built with [Ink](https://github.com/vadimdemedes/ink) +
-  React: a gradient `LØSTFΛST` wordmark, a tips panel, a live progress spinner
-  and a scrolling transcript.
+  React: a gradient `LØSTFΛST` wordmark, command autocomplete, switchable
+  colour themes, a live progress spinner and a scrolling transcript.
 - **13 strategies** computed from textbook technical indicators (SMA, EMA, RSI,
   ATR, Bollinger, MACD, Stochastic, VWAP, Donchian, OLS slope).
 - **Exact money math** — every value that touches money or position sizing runs
@@ -24,11 +24,15 @@ pluggable AI advisor — all from a polished interactive terminal UI.
   `0.1 + 0.2 === 0.3` exactly and quantities are reproducible.
 - **Drizzle ORM** on PostgreSQL — runs on an **embedded PGlite** database with
   zero configuration, or on a real PostgreSQL server via `DATABASE_URL`.
-- **Three commands with precise lifecycle rules**: `/start`, `/update`, `/clear`.
+- **Interactive command set with precise lifecycle rules**: `/start`, `/update`,
+  `/clear`, `/status`, `/strategies`, `/theme`, `/api`, `/help`, `/exit`.
 - **Five pillars**: market math, analytics, search, scraping (Playwright) and an
   AI advisor — each behind a small interface, dependency-injected and testable.
-- **Works offline**: deterministic synthetic market data and a curated knowledge
-  base mean every command runs without network access (great for CI and demos).
+- **Works offline or live**: deterministic synthetic market data keeps CI and
+  demos reproducible; Binance, CoinGecko and MEXC adapters can pull real crypto
+  market rates.
+- **In-process NestJS GraphQL backend**: the interactive CLI starts a local
+  GraphQL endpoint without a second service process.
 - **Dockerised**: `docker compose up` brings up PostgreSQL and the CLI.
 
 ---
@@ -77,12 +81,19 @@ LOSTFAST_MARKET_SOURCE=synthetic LOSTFAST_DATA_DIR=:memory: node dist/index.js s
 | `/clear`       | Prune outdated runs, keeping the latest run and the general search table.    |
 | `/status`      | Show per-table row counts and the latest run's analytics.                    |
 | `/strategies`  | List every available strategy.                                               |
+| `/theme [name]`| List or switch themes (`violet`, `ocean`, `ember`, `forest`, `mono`).        |
+| `/api`         | Show the in-process GraphQL endpoint.                                        |
 | `/help`        | Show the command list.                                                       |
 | `/exit`        | Quit (aliases: `/quit`, `/q`, `Esc`, `Ctrl+C`).                              |
 
 The leading slash is optional. The "general search results" table
 (`search_results`) is the one table that **survives `/start` and `/clear`** — it
 accumulates discoveries across every session, exactly as required.
+
+While typing a command, Lostfast shows matching command suggestions. Press
+`Tab` to complete an unambiguous command prefix.
+
+![LØSTFΛST autocomplete](docs/screenshots/cli-autocomplete.png)
 
 ---
 
@@ -140,6 +151,7 @@ src/
   risk/         risk limits, validator and the strategy↔risk orchestrator
   db/           Drizzle schema, the driver-agnostic client, the LostfastStore
   services/     market-data, analytics, search, scraping (Playwright), ai-advisor
+  backend/      NestJS + Apollo GraphQL wrapper around the Lostfast facade
   pipeline/     CollectionPipeline — orchestrates a full run end to end
   app/          Lostfast facade (owns the db, store and pipeline)
   cli/          Ink UI: ascii banner, theme, App, Banner, output views, commands
@@ -188,19 +200,40 @@ All configuration is environment-driven (see `.env.example`):
 | ------------------------- | ----------------------------- | -------------------------------------------------------------- |
 | `DATABASE_URL`            | _(unset → PGlite)_            | PostgreSQL connection string. Unset uses embedded PGlite.      |
 | `LOSTFAST_DATA_DIR`       | `.lostfast/pgdata`            | PGlite data directory (`:memory:` for ephemeral).              |
-| `LOSTFAST_MARKET_SOURCE`  | `resilient`                   | `resilient` \| `live` \| `synthetic`.                          |
+| `LOSTFAST_MARKET_SOURCE`  | `resilient`                   | `resilient` \| `live` \| `binance` \| `coingecko` \| `mexc` \| `synthetic`. |
 | `LOSTFAST_MARKET_API`     | `https://api.binance.com`     | Binance REST base URL.                                         |
+| `LOSTFAST_COINGECKO_API`  | `https://api.coingecko.com`   | CoinGecko REST base URL.                                       |
+| `LOSTFAST_MEXC_API`       | `https://api.mexc.com`        | MEXC REST base URL.                                            |
 | `LOSTFAST_SYMBOLS`        | `BTCUSDT,ETHUSDT,SOLUSDT`     | Comma-separated symbols to analyse.                            |
 | `LOSTFAST_INTERVAL`       | `1h`                          | Candle interval.                                               |
 | `LOSTFAST_CANDLE_LIMIT`   | `200`                         | Number of candles to fetch per symbol.                         |
 | `LOSTFAST_ACCOUNT_BALANCE`| `10000`                       | Account equity used for position sizing.                       |
+| `LOSTFAST_THEME`          | `violet`                      | Initial CLI theme.                                             |
+| `LOSTFAST_API`            | `1`                           | Start the in-process GraphQL API with the interactive CLI.      |
+| `LOSTFAST_API_HOST`       | `127.0.0.1`                   | GraphQL bind host.                                             |
+| `LOSTFAST_API_PORT`       | `0`                           | GraphQL bind port (`0` selects a free port).                    |
 | `LOSTFAST_SCRAPE`         | `0`                           | Set to `1` to enable the Playwright scraping pillar.           |
 | `ANTHROPIC_API_KEY`       | _(unset → heuristic)_        | When set, the AI advisor calls the Anthropic API.              |
 | `LOSTFAST_AI_MODEL`       | `claude-opus-4-7`             | Model used by the Anthropic advisor.                           |
 
 The market source falls back gracefully: `resilient` uses live Binance data and
 transparently switches to deterministic synthetic candles if the network is
-unreachable.
+unreachable. `coingecko` uses `/api/v3/simple/price`; `mexc` uses
+`/api/v3/ticker/price` and shapes the fetched spot rate into a candle series for
+the strategy engine.
+
+## GraphQL API
+
+The interactive CLI starts the NestJS GraphQL backend in the same process by
+default and prints the endpoint in the banner. Disable it with
+`LOSTFAST_API=0`, or run only the API from the CLI:
+
+```bash
+node dist/index.js api
+```
+
+Available operations include `status`, `strategies`, and the `start`, `update`
+and `clear` mutations.
 
 ---
 

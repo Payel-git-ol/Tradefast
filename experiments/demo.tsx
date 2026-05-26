@@ -2,34 +2,37 @@ import { Box, render, Text } from 'ink';
 import React from 'react';
 
 import { OutputLine, type OutputItem } from '../src/cli/output.js';
-import { COLORS } from '../src/cli/theme.js';
-import { Lostfast } from '../src/app/lostfast.js';
+import { suggestCommands } from '../src/cli/commands.js';
+import { getTheme } from '../src/cli/theme.js';
 
-// A static snapshot of the UI for the PR screenshot: banner + a real run report
-// produced from deterministic synthetic data, plus the input prompt.
-process.env.LOSTFAST_DATA_DIR = ':memory:';
-process.env.LOSTFAST_MARKET_SOURCE = 'synthetic';
-process.env.LOSTFAST_SYMBOLS = 'BTCUSDT,ETHUSDT,SOLUSDT';
-
-const app = await Lostfast.create();
-const report = await app.start();
-await app.close();
+// A static snapshot of the UI for PR screenshots.
+const theme = getTheme('ocean');
+const apiUrl = 'http://127.0.0.1:8787/graphql';
+const input = '/stat';
 
 const items: OutputItem[] = [
-  { id: 0, kind: 'banner', version: '0.1.0', driver: 'pglite', model: 'claude-opus-4-7' },
-  { id: 1, kind: 'echo', text: '/start' },
-  { id: 2, kind: 'run', report },
+  { id: 0, kind: 'banner', version: '0.2.0', driver: 'pglite', model: 'claude-opus-4-7' },
 ];
 
 function Demo(): React.ReactElement {
   return (
     <Box flexDirection="column">
       {items.map((item) => (
-        <OutputLine key={item.id} item={item} />
+        <OutputLine key={item.id} item={item} theme={theme} apiUrl={apiUrl} />
       ))}
-      <Box>
-        <Text color={COLORS.accent}>{'> '}</Text>
-        <Text color={COLORS.muted}>type a command, e.g. /update  (/help for all)</Text>
+      <Box flexDirection="column">
+        <Box>
+          <Text color={theme.colors.accent}>{'> '}</Text>
+          <Text>{input}</Text>
+        </Box>
+        <Box flexDirection="column" marginLeft={2}>
+          {suggestCommands(input).map((command) => (
+            <Text key={command.name}>
+              <Text color={theme.colors.info}>{command.name.padEnd(12)}</Text>
+              <Text color={theme.colors.muted}>{command.summary}</Text>
+            </Text>
+          ))}
+        </Box>
       </Box>
     </Box>
   );
