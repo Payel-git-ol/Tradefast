@@ -10,17 +10,23 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - name: Check out pull request source
+      - name: Check out pull request source anonymously
         if: github.event_name == 'pull_request'
-        uses: actions/checkout@v4
-        with:
-          repository: ${{ github.event.pull_request.head.repo.full_name }}
-          ref: ${{ github.event.pull_request.head.sha }}
-          persist-credentials: false
+        run: |
+          git init .
+          git remote add origin "https://github.com/${{ github.event.pull_request.head.repo.full_name }}.git"
+          git fetch --no-tags --depth=1 origin "${{ github.event.pull_request.head.sha }}"
+          git checkout --detach FETCH_HEAD
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
-      - name: Check out repository
+      - name: Check out repository anonymously
         if: github.event_name != 'pull_request'
-        uses: actions/checkout@v4
+        run: |
+          git init .
+          git remote add origin "https://github.com/${{ github.repository }}.git"
+          git fetch --no-tags --depth=1 origin "${{ github.ref }}"
+          git checkout --detach FETCH_HEAD
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
       - uses: actions/setup-node@v4
         with:
