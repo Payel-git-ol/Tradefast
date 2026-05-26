@@ -430,7 +430,7 @@ export function App({ app, version, apiUrl }: AppProps): React.ReactElement {
         push({ kind: 'text', text: `Exchange: ${next.label} (live data source updated)`, color: theme.colors.info });
         return;
       }
-      if (name === 'operating-mode') {
+      if (name === 'operating-mode-time') {
         if (args.length === 0) {
           openIntervalSelector();
           return;

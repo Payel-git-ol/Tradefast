@@ -74,7 +74,7 @@ async function runHeadless(command: string): Promise<number> {
     process.stdout.write(args[0] ? `Exchange: ${ex.label}\n` : `Exchanges: ${exchangeNames().join(', ')}\n`);
     return 0;
   }
-  if (name === 'operating-mode') {
+  if (name === 'operating-mode-time') {
     const iv = getInterval(args[0]);
     if (args[0] && iv.name !== args[0].toLowerCase()) {
       process.stderr.write(`Unknown timeframe "${args[0]}". Available: ${intervalNames().join(', ')}\n`);
