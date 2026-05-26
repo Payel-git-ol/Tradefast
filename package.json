@@ -34,6 +34,7 @@
     "@nestjs/core": "^11.1.24",
     "@nestjs/graphql": "^13.4.2",
     "@nestjs/platform-express": "^11.1.24",
+    "dotenv": "^17.4.2",
     "drizzle-orm": "^0.38.3",
     "figlet": "^1.8.0",
     "gradient-string": "^3.0.0",

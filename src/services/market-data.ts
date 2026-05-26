@@ -1,9 +1,57 @@
 import type { Candle } from '../domain/candle.js';
 import type { ExchangeName } from '../cli/exchanges.js';
+import { logMarketData } from './logger.js';
 
 export interface MarketDataSource {
   readonly name: string;
   getCandles(symbol: string, interval: string, limit: number): Promise<Candle[]>;
+}
+
+/**
+ * Диапазоны цен для валидации: [floor, ceiling].
+ * Синтетический генератор выдаёт 100–600, поэтому ceiling ловит фейки
+ * для дешёвых монет (XRP, ADA, DOT и т.д.), а floor — для дорогих (BTC, ETH).
+ */
+const PRICE_RANGES: Record<string, [number, number]> = {
+  BTC:  [10_000, 200_000],
+  ETH:  [500,    15_000],
+  BNB:  [100,    2_000],
+  SOL:  [1,      300],
+  XRP:  [0.05,   10],
+  ADA:  [0.02,   5],
+  DOGE: [0.001,  1],
+  AVAX: [1,      200],
+  DOT:  [0.05,   10],
+  LINK: [0.5,    100],
+  LTC:  [1,      500],
+  NEAR: [0.05,   50],
+  APT:  [0.05,   50],
+  ARB:  [0.01,   10],
+  SUI:  [0.01,   50],
+  TON:  [0.01,   50],
+  PEPE: [1e-12,  0.01],
+};
+
+function priceRange(symbol: string): [number, number] {
+  return PRICE_RANGES[baseAsset(symbol)] ?? [0.001, 1_000_000];
+}
+
+function validateCandles(candles: Candle[], symbol: string): void {
+  if (candles.length === 0) return;
+  const [floor, ceiling] = priceRange(symbol);
+  const last = candles[candles.length - 1];
+  if (last.close < floor) {
+    throw new Error(
+      `Price too low for ${symbol}: close=${last.close} < floor ${floor}. ` +
+      `Check LOSTFAST_EXCHANGE or use LOSTFAST_MARKET_SOURCE=synthetic for demo mode.`,
+    );
+  }
+  if (last.close > ceiling) {
+    throw new Error(
+      `Price too high for ${symbol}: close=${last.close} > ceiling ${ceiling}. ` +
+      `Check LOSTFAST_EXCHANGE or use LOSTFAST_MARKET_SOURCE=synthetic for demo mode.`,
+    );
+  }
 }
 
 const COINGECKO_IDS: Record<string, string> = {
@@ -149,11 +197,16 @@ export class OkxMarketData implements MarketDataSource {
  * Deterministic synthetic candles for offline use and tests. The series is
  * reproducible from `symbol` so the same input always yields the same data —
  * useful for snapshot-style verification.
+ *
+ * ⚠️  WARNING: This source generates prices between 100–600 and is NOT suitable
+ * for real trading decisions. It exists for demos, CI, and offline testing.
  */
 export class SyntheticMarketData implements MarketDataSource {
   readonly name = 'synthetic';
 
   getCandles(symbol: string, interval: string, limit: number): Promise<Candle[]> {
+    console.warn(`[SYNTHETIC] Generating fake candles for ${symbol}. ` +
+      `These prices are NOT real market data. Set LOSTFAST_MARKET_SOURCE=resilient and LOSTFAST_EXCHANGE=<exchange>.`);
     let seed = [...symbol].reduce((acc, ch) => acc + ch.charCodeAt(0), 0) + intervalMinutes(interval);
     const rand = () => {
       seed = (seed * 1103515245 + 12345) & 0x7fffffff;
@@ -247,24 +300,28 @@ function candlesFromSpot(symbol: string, interval: string, limit: number, spot: 
 }
 
 /**
- * Returns live candles when the network is reachable, falling back to a
- * deterministic synthetic source so the CLI always works — including in CI and
- * air-gapped environments.
+ * Wraps a live MarketDataSource with price validation and file logging.
+ * Every successful fetch and every error is recorded to logs/market-data.log.
+ *
+ * IMPORTANT: This class does NOT fall back to synthetic data. If the live
+ * source fails (network error, rate limit, bad response) the error is logged
+ * and rethrown so the user sees exactly what went wrong. Use
+ * `LOSTFAST_MARKET_SOURCE=synthetic` explicitly for demo/offline mode.
  */
 export class ResilientMarketData implements MarketDataSource {
   readonly name = 'resilient';
-  constructor(
-    private readonly live: MarketDataSource = new BinanceMarketData(),
-    private readonly fallback: MarketDataSource = new SyntheticMarketData(),
-    private readonly allowFallback = true,
-  ) {}
+  constructor(private readonly live: MarketDataSource) {}
 
   async getCandles(symbol: string, interval: string, limit: number): Promise<Candle[]> {
     try {
-      return await this.live.getCandles(symbol, interval, limit);
+      const candles = await this.live.getCandles(symbol, interval, limit);
+      validateCandles(candles, symbol);
+      logMarketData(symbol, this.live.name, 'ok', `${candles.length} candles`, candles.length);
+      return candles;
     } catch (error) {
-      if (!this.allowFallback) throw error;
-      return this.fallback.getCandles(symbol, interval, limit);
+      const msg = error instanceof Error ? error.message : String(error);
+      logMarketData(symbol, this.live.name, 'error', msg);
+      throw error;
     }
   }
 }
@@ -277,7 +334,7 @@ export { MexcMarketData as MexcTickerMarketData };
  *   - `synthetic` → deterministic offline data (great for demos/CI/tests),
  *   - `live`/`binance` → Binance only (fails if unreachable),
  *   - `coingecko` → CoinGecko simple price endpoint,
-  *   - `mexc`      → MEXC real klines,
+ *   - `mexc`      → MEXC real klines,
  *   - `resilient` (default) → live with synthetic fallback.
  */
 export function createMarketSource(): MarketDataSource {
@@ -292,35 +349,64 @@ export function createMarketSource(): MarketDataSource {
     case 'live':
       return new BinanceMarketData();
     default:
-      return new ResilientMarketData();
+      return new ResilientMarketData(new BinanceMarketData());
   }
+}
+
+/**
+ * Wraps any MarketDataSource with price validation.
+ * Throws if candle prices fall below realistic floors for the symbol.
+ */
+export function withPriceValidation(source: MarketDataSource): MarketDataSource {
+  const origGetCandles = source.getCandles.bind(source);
+  return {
+    name: source.name,
+    getCandles: async (symbol, interval, limit) => {
+      const candles = await origGetCandles(symbol, interval, limit);
+      validateCandles(candles, symbol);
+      return candles;
+    },
+  };
 }
 
 /**
  * Creates a live market data source for the given exchange (Binance, Bybit, OKX, MEXC).
  * Falls back to Binance if unknown. This is the preferred way when the user has
  * selected an exchange via /exchange or LOSTFAST_EXCHANGE.
+ *
+ * Prices are validated against realistic floors after every fetch.
  */
 export function createMarketSourceFor(exchange?: ExchangeName | string): MarketDataSource {
   const ex = (exchange ?? 'binance').toLowerCase();
-  switch (ex) {
-    case 'bybit':
-      return new BybitMarketData();
-    case 'okx':
-      return new OkxMarketData();
-    case 'mexc':
-      return new MexcMarketData();
-    case 'binance':
-    default:
-      return new BinanceMarketData();
-  }
+  const inner = (() => {
+    switch (ex) {
+      case 'bybit':
+        return new BybitMarketData();
+      case 'okx':
+        return new OkxMarketData();
+      case 'mexc':
+        return new MexcMarketData();
+      case 'binance':
+      default:
+        return new BinanceMarketData();
+    }
+  })();
+  // Decorate with price validation
+  return {
+    name: inner.name,
+    getCandles: async (symbol, interval, limit) => {
+      const candles = await inner.getCandles(symbol, interval, limit);
+      validateCandles(candles, symbol);
+      return candles;
+    },
+  };
 }
 
 /**
- * Resilient wrapper that uses the real exchange adapter for the chosen exchange
- * and falls back to synthetic data when the exchange is unreachable.
+ * Creates a MarketDataSource for the chosen exchange, wrapped with price
+ * validation and file logging (logs/market-data.log). No synthetic fallback:
+ * all errors propagate directly to the user.
  */
 export function createResilientMarketSourceFor(exchange?: ExchangeName | string): MarketDataSource {
-  const live = createMarketSourceFor(exchange);
-  return new ResilientMarketData(live, new SyntheticMarketData(), true);
+  return new ResilientMarketData(createMarketSourceFor(exchange));
 }
