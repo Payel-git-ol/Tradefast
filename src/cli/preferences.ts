@@ -5,6 +5,7 @@ import { dirname, join } from 'node:path';
 import type { IntervalName } from './intervals.js';
 import type { ThemeName } from './theme.js';
 import type { ExchangeName } from './exchanges.js';
+import type { ModeName } from './modes.js';
 
 const PREF_PATH = join(homedir(), '.lostfast', 'preferences.json');
 
@@ -12,6 +13,7 @@ export interface UserPreferences {
   theme?: ThemeName;
   exchange?: ExchangeName;
   interval?: IntervalName;
+  mode?: ModeName;
 }
 
 export async function loadPreferences(): Promise<UserPreferences> {
@@ -41,4 +43,8 @@ export async function saveExchange(name: ExchangeName): Promise<void> {
 
 export async function saveInterval(name: IntervalName): Promise<void> {
   await savePreferences({ interval: name });
+}
+
+export async function saveMode(name: ModeName): Promise<void> {
+  await savePreferences({ mode: name });
 }

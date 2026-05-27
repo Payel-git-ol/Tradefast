@@ -26,8 +26,11 @@ interactive terminal UI.
 - **Drizzle ORM** on PostgreSQL — runs on an **embedded PGlite** database with
   zero configuration, or on a real PostgreSQL server via `DATABASE_URL`.
 - **Interactive command set with precise lifecycle rules**: `/start`, `/update`,
-  `/backtest`, `/news`, `/clear`, `/status`, `/strategies`, `/theme`, `/api`,
-  `/help`, `/exit`.
+  `/backtest`, `/news`, `/clear`, `/status`, `/strategies`, `/theme`,
+  `/operating-mode`, `/api`, `/help`, `/exit`.
+- **Selectable operating modes**: `/operating-mode` opens a pop-up to switch the
+  trading style between **long-term**, **medium-term** and **scalping**, so the
+  platform is no longer locked to a single horizon.
 - **Walk-forward backtester**: `/backtest` replays history with the *same*
   forecast logic the Trade Log shows and reports win rate, expectancy and profit
   factor — so the forecasts can be validated against real price action instead of
@@ -95,6 +98,8 @@ LOSTFAST_MARKET_SOURCE=synthetic LOSTFAST_DATA_DIR=:memory: node dist/index.js s
 | `/status`      | Show per-table row counts and the latest run's analytics.                    |
 | `/strategies`  | List every available strategy.                                               |
 | `/theme [name]`| Open the selector window, or switch directly by name (`violet`, `ocean`, `ember`, `forest`, `mono`). |
+| `/operating-mode [name]` | Open the trading-style selector pop-up, or switch directly by name (`long-term`, `medium-term`, `scalping`). Applies that horizon's timeframe. |
+| `/operating-mode-time [tf]` | Open the timeframe selector, or set it directly (`1m`–`1d`) to fine-tune within the current mode. |
 | `/api`         | Show the in-process GraphQL endpoint.                                        |
 | `/help`        | Show the command list.                                                       |
 | `/exit`        | Quit (aliases: `/quit`, `/q`, `Esc`, `Ctrl+C`).                              |
@@ -110,6 +115,17 @@ While typing a command, Lostfast shows matching command suggestions. Press
 selector window, or pass a theme name for one-shot switching.
 
 ![LØSTFΛST autocomplete](docs/screenshots/cli-autocomplete.png)
+
+### Operating modes
+
+Lostfast is no longer locked to a single trading horizon. Run `/operating-mode`
+to open a pop-up and pick a trading style — **long-term**, **medium-term** or
+**scalping** — and the analysis timeframe shifts to match (daily, hourly or 5m
+candles, respectively). On first launch the pop-up opens automatically so you
+choose a style before starting; your choice is remembered across sessions. Use
+`/operating-mode-time` afterwards to fine-tune the exact timeframe within a mode.
+
+![LØSTFΛST operating-mode selector](docs/screenshots/cli-operating-mode.png)
 
 ---
 
@@ -272,6 +288,7 @@ All configuration is environment-driven (see `.env.example`):
 | `LOSTFAST_MEXC_API`       | `https://api.mexc.com`        | MEXC REST base URL.                                            |
 | `LOSTFAST_SYMBOLS`        | `BTCUSDT,ETHUSDT,SOLUSDT`     | Comma-separated symbols to analyse.                            |
 | `LOSTFAST_INTERVAL`       | `1h`                          | Candle interval.                                               |
+| `LOSTFAST_MODE`           | `medium-term`                 | Initial operating mode (`long-term`, `medium-term`, `scalping`). |
 | `LOSTFAST_CANDLE_LIMIT`   | `200`                         | Number of candles to fetch per symbol.                         |
 | `LOSTFAST_ACCOUNT_BALANCE`| `10000`                       | Account equity used for position sizing.                       |
 | `LOSTFAST_THEME`          | `violet`                      | Initial CLI theme.                                             |

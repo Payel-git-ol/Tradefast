@@ -91,6 +91,13 @@ export class Lostfast {
     (this.config as any).interval = interval;
   }
 
+  /** Records the active operating mode (trading style). The associated timeframe
+   *  is applied separately via {@link setInterval} so analysis actually shifts
+   *  to the chosen horizon. */
+  setMode(mode: string): void {
+    (this.config as any).mode = mode;
+  }
+
   get driver(): string {
     return this.handle.driver;
   }

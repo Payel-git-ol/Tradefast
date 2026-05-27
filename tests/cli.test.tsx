@@ -8,6 +8,7 @@ import { completeCommand, parseCommand, suggestCommands } from '../src/cli/comma
 import { OutputLine } from '../src/cli/output.js';
 import { getTheme, themeNames } from '../src/cli/theme.js';
 import { getExchange, exchangeNames, type ExchangeName } from '../src/cli/exchanges.js';
+import { getMode, modeNames } from '../src/cli/modes.js';
 import { renderBacktestLines } from '../src/cli/backtest-log.js';
 import { renderTradeLogLines } from '../src/cli/trade-log.js';
 import { Money } from '../src/domain/money.js';
@@ -24,11 +25,15 @@ const fakeApp = {
     model: 'test-model',
     theme: 'violet',
     exchange: 'bybit',
+    mode: 'medium-term',
     apiEnabled: true,
     apiHost: '127.0.0.1',
     apiPort: 0,
   },
   close: vi.fn(),
+  setExchange: vi.fn(),
+  setInterval: vi.fn(),
+  setMode: vi.fn(),
   strategies: () => [{ id: 'trend-following', title: 'Trend Following' }],
 } as unknown as Lostfast;
 
@@ -53,6 +58,26 @@ describe('command autocomplete', () => {
   it('parses exchange command arguments', () => {
     expect(parseCommand('/exchange bybit')).toMatchObject({ name: 'exchange', token: 'exchange', args: ['bybit'] });
     expect(parseCommand('exchange')).toMatchObject({ name: 'exchange', token: 'exchange', args: [] });
+  });
+
+  it('parses operating-mode separately from operating-mode-time', () => {
+    expect(parseCommand('/operating-mode scalping')).toMatchObject({
+      name: 'operating-mode',
+      token: 'operating-mode',
+      args: ['scalping'],
+    });
+    expect(parseCommand('/operating-mode-time 5m')).toMatchObject({
+      name: 'operating-mode-time',
+      token: 'operating-mode-time',
+      args: ['5m'],
+    });
+  });
+
+  it('suggests both operating-mode commands for the shared prefix', () => {
+    expect(suggestCommands('/operating-mode').map((c) => c.name)).toEqual([
+      '/operating-mode',
+      '/operating-mode-time',
+    ]);
   });
 
   it('renders the interactive shell and accepts input', async () => {
@@ -103,6 +128,88 @@ describe('command autocomplete', () => {
     expect(lastFrame()).toContain('type a command');
     unmount();
   });
+
+  it('applies an operating mode via direct command, shifting the timeframe', async () => {
+    const tallStdout = { rows: 80, columns: 120, write: () => {}, on: () => {}, removeListener: () => {} } as any;
+    const setMode = vi.fn();
+    const setInterval = vi.fn();
+    const app = { ...fakeApp, setMode, setInterval } as unknown as Lostfast;
+    const { stdin, unmount } = render(
+      <App app={app} version="0.0.0-test" apiUrl="http://127.0.0.1:8787/graphql" />,
+      { stdout: tallStdout },
+    );
+
+    // Let the component mount so its input handler is registered before typing.
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    // ink-text-input only registers single-key writes in this harness, so type
+    // the command one character at a time before submitting.
+    for (const ch of '/operating-mode scalping') {
+      stdin.write(ch);
+      await new Promise((resolve) => setTimeout(resolve, 1));
+    }
+    stdin.write('\r');
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    expect(setMode).toHaveBeenCalledWith('scalping');
+    // Scalping analyses on 5m candles, so the timeframe is applied alongside.
+    expect(setInterval).toHaveBeenCalledWith('5m');
+    unmount();
+  });
+
+  it('opens the operating-mode selector popup on the bare command', async () => {
+    const tallStdout = { rows: 80, columns: 120, write: () => {}, on: () => {}, removeListener: () => {} } as any;
+    const { lastFrame, stdin, unmount } = render(
+      <App app={fakeApp} version="0.0.0-test" apiUrl="http://127.0.0.1:8787/graphql" />,
+      { stdout: tallStdout },
+    );
+
+    // Let the component mount so its input handler is registered before typing.
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    for (const ch of '/operating-mode') {
+      stdin.write(ch);
+      await new Promise((resolve) => setTimeout(resolve, 1));
+    }
+    // The prefix matches two commands, so the first Enter fills the suggestion
+    // and the second submits the now-unambiguous command.
+    stdin.write('\r');
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    stdin.write('\r');
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    expect(lastFrame()).toContain('Select operating mode');
+    expect(lastFrame()).toContain('Scalping');
+    unmount();
+  });
+
+  it('prompts for an operating mode on first launch', async () => {
+    const tallStdout = { rows: 80, columns: 120, write: () => {}, on: () => {}, removeListener: () => {} } as any;
+    const { lastFrame, unmount } = render(
+      <App app={fakeApp} version="0.0.0-test" apiUrl="http://127.0.0.1:8787/graphql" promptOperatingMode />,
+      { stdout: tallStdout },
+    );
+
+    await new Promise((resolve) => setTimeout(resolve, 5));
+
+    // No typing: the selector should already be open so the user picks a style
+    // before starting, as the issue requires.
+    expect(lastFrame()).toContain('Select operating mode');
+    expect(lastFrame()).toContain('Long-term');
+    unmount();
+  });
+
+  it('does not prompt for an operating mode when one is already saved', async () => {
+    const tallStdout = { rows: 80, columns: 120, write: () => {}, on: () => {}, removeListener: () => {} } as any;
+    const { lastFrame, unmount } = render(
+      <App app={fakeApp} version="0.0.0-test" apiUrl="http://127.0.0.1:8787/graphql" />,
+      { stdout: tallStdout },
+    );
+
+    await new Promise((resolve) => setTimeout(resolve, 5));
+
+    expect(lastFrame()).not.toContain('Select operating mode');
+    expect(lastFrame()).toContain('type a command');
+    unmount();
+  });
 });
 
 describe('cli themes', () => {
@@ -135,6 +242,25 @@ describe('cli exchanges', () => {
     expect(getExchange().name).toBe('bybit');
     expect(getExchange('mexc').label).toBe('MEXC');
     expect(getExchange('unknown').name).toBe('bybit');
+  });
+});
+
+describe('cli operating modes', () => {
+  it('lists long-term, medium-term and scalping, defaulting to medium-term', () => {
+    expect(modeNames()).toEqual(['long-term', 'medium-term', 'scalping']);
+    expect(getMode().name).toBe('medium-term');
+    expect(getMode('unknown').name).toBe('medium-term');
+  });
+
+  it('maps each mode to a trading-horizon timeframe', () => {
+    expect(getMode('long-term').interval).toBe('1d');
+    expect(getMode('medium-term').interval).toBe('1h');
+    expect(getMode('scalping').interval).toBe('5m');
+  });
+
+  it('normalises mode names case-insensitively', () => {
+    expect(getMode('SCALPING').name).toBe('scalping');
+    expect(getMode('Long-Term').label).toBe('Long-term');
   });
 });
 

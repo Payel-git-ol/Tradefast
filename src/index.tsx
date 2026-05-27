@@ -14,7 +14,8 @@ import { COMMANDS, parseCommand } from './cli/commands.js';
 import { getTheme, themeGradient, themeNames, type ThemeName } from './cli/theme.js';
 import { getExchange, exchangeNames, type ExchangeName } from './cli/exchanges.js';
 import { getInterval, intervalNames } from './cli/intervals.js';
-import { loadPreferences, saveTheme, saveExchange, saveInterval } from './cli/preferences.js';
+import { getMode, modeNames, type ModeName } from './cli/modes.js';
+import { loadPreferences, saveTheme, saveExchange, saveInterval, saveMode } from './cli/preferences.js';
 import { renderBacktestLines } from './cli/backtest-log.js';
 import { renderTradeLogLines } from './cli/trade-log.js';
 import { loadConfig } from './config.js';
@@ -72,6 +73,24 @@ async function runHeadless(command: string): Promise<number> {
       await saveExchange(ex.name as ExchangeName);
     }
     process.stdout.write(args[0] ? `Exchange: ${ex.label}\n` : `Exchanges: ${exchangeNames().join(', ')}\n`);
+    return 0;
+  }
+  if (name === 'operating-mode') {
+    const md = getMode(args[0]);
+    if (args[0] && md.name !== args[0].toLowerCase()) {
+      process.stderr.write(`Unknown operating mode "${args[0]}". Available: ${modeNames().join(', ')}\n`);
+      return 1;
+    }
+    if (args[0]) {
+      await saveMode(md.name as ModeName);
+      // A mode is a trading horizon, so applying it also shifts the timeframe.
+      await saveInterval(md.interval);
+    }
+    process.stdout.write(
+      args[0]
+        ? `Operating mode: ${md.label} — ${md.description} (timeframe ${getInterval(md.interval).label})\n`
+        : `Operating modes: ${modeNames().join(', ')}\n`,
+    );
     return 0;
   }
   if (name === 'operating-mode-time') {
@@ -154,7 +173,9 @@ async function main(): Promise<void> {
   const version = readVersion();
 
   if (args.length > 0) {
-    process.exitCode = await runHeadless(args[0]);
+    // Forward the whole invocation so argument-bearing commands (e.g.
+    // `lostfast operating-mode scalping`) reach their handlers intact.
+    process.exitCode = await runHeadless(args.join(' '));
     return;
   }
 
@@ -162,14 +183,25 @@ async function main(): Promise<void> {
   const baseConfig = loadConfig();
   const effectiveTheme = saved.theme ?? baseConfig.theme;
   const effectiveExchange = saved.exchange ?? baseConfig.exchange;
-  const effectiveInterval = saved.interval ?? baseConfig.interval;
-  const config = loadConfig({ theme: effectiveTheme, exchange: effectiveExchange, interval: effectiveInterval });
+  const effectiveMode = saved.mode ?? baseConfig.mode;
+  // Saving a mode also persists its timeframe, so a saved interval already
+  // reflects the chosen mode (or a later fine-tune); honour it when present and
+  // otherwise fall back to the mode's recommended timeframe.
+  const effectiveInterval = saved.interval ?? (saved.mode ? getMode(effectiveMode).interval : baseConfig.interval);
+  const config = loadConfig({
+    theme: effectiveTheme,
+    exchange: effectiveExchange,
+    interval: effectiveInterval,
+    mode: effectiveMode,
+  });
   const app = await Lostfast.create(config);
   const backend = config.apiEnabled
     ? await startLostfastBackend(app, { host: config.apiHost, port: config.apiPort })
     : null;
   try {
-    const { waitUntilExit } = render(<App app={app} version={version} apiUrl={backend?.url} />);
+    const { waitUntilExit } = render(
+      <App app={app} version={version} apiUrl={backend?.url} promptOperatingMode={saved.mode === undefined} />,
+    );
     await waitUntilExit();
   } finally {
     if (backend) await backend.close();
