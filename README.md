@@ -15,9 +15,6 @@ interactive terminal UI.
 
 ## Highlights
 
-- **Gemini-CLI-style UI** built with [Ink](https://github.com/vadimdemedes/ink) +
-  React: a gradient `LØSTFΛST` wordmark, command autocomplete, switchable
-  colour themes, a live progress spinner and a scrolling transcript.
 - **13 strategies** computed from textbook technical indicators (SMA, EMA, RSI,
   ATR, Bollinger, MACD, Stochastic, VWAP, Donchian, OLS slope).
 - **Exact money math** — every value that touches money or position sizing runs
