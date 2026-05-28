@@ -15,6 +15,15 @@ interactive terminal UI.
 
 ## Highlights
 
+- **30 research sources** across 4 groups: economic calendars, news portals,
+  Reddit communities (10 subreddits with comment traversal), and exchange communities
+  (Binance, Bybit, OKX, MEXC blogs + subreddits).
+- **Configurable research depth**: `/serching-level` sets crawl aggressiveness from
+  Normal (fast) to Max (full comment graph), persisted across sessions.
+- **Selectable research platforms**: `/serching-platforms` lets you toggle source
+  groups on/off — skip Reddit, use only calendars, or go all-in.
+- **Reddit-specific extraction**: specialized parser follows comment-thread links
+  to other Reddit posts and external articles.
 - **13 strategies** computed from textbook technical indicators (SMA, EMA, RSI,
   ATR, Bollinger, MACD, Stochastic, VWAP, Donchian, OLS slope).
 - **Exact money math** — every value that touches money or position sizing runs
@@ -100,6 +109,9 @@ LOSTFAST_MARKET_SOURCE=synthetic LOSTFAST_DATA_DIR=:memory: node dist/index.js s
 | `/theme [name]`| Open the selector window, or switch directly by name (`violet`, `ocean`, `ember`, `forest`, `mono`). |
 | `/operating-mode [name]` | Open the trading-style selector pop-up, or switch directly by name (`long-term`, `medium-term`, `scalping`). Applies that horizon's timeframe. |
 | `/operating-mode-time [tf]` | Open the timeframe selector, or set it directly (`1m`–`1d`) to fine-tune within the current mode. |
+| `/serching-level [level]` | Set crawl depth/resolution: `normal` (fast, depth 2), `high` (deep, depth 4), or `max` (full graph, depth 8 with comment traversal). Opens a pop-up without argument. |
+| `/serching-platforms` | Toggle source groups on/off: economic calendars, news portals, Reddit communities, exchange communities. Opens a multi-select pop-up. |
+| `/exchange` | Swap the asset being researched — opens a pop-up to select from trading symbols. |
 | `/api`         | Show the in-process GraphQL endpoint.                                        |
 | `/help`        | Show the command list.                                                       |
 | `/exit`        | Quit (aliases: `/quit`, `/q`, `Esc`, `Ctrl+C`).                              |
@@ -249,6 +261,9 @@ All configuration is environment-driven (see `.env.example`):
 | `LOSTFAST_AI_API_URL`     | `https://api.anthropic.com/v1/messages` | OpenAI-compatible endpoint for AI corrections.               |
 | `LOSTFAST_AI_API_KEY`     | _(unset → heuristic)_        | API key (falls back to `ANTHROPIC_API_KEY`).                    |
 | `LOSTFAST_AI_MODEL`       | `claude-4.7-opus`             | Model for per-symbol advice and cross-symbol correction.        |
+| `LOSTFAST_SKIP_AI_VALIDATION` | `0`                        | Set to `1` to skip the cross-symbol AI correction step.        |
+| `LOSTFAST_SEARCHING_LEVEL`| _(unset → pop-up)_           | Preset depth: `normal`, `high`, or `max`. Skips the pop-up.     |
+| `LOSTFAST_SEARCHING_PLATFORMS` | _(unset → pop-up)_      | Comma-separated source groups to enable (e.g. `news-portals,reddit-communities`). Skips the pop-up. |
 
 The market source falls back gracefully: `resilient` uses live Binance data and
 transparently switches to deterministic synthetic candles if the network is
@@ -279,15 +294,25 @@ npx playwright install chromium
 
 ## News Crawler
 
-The `/news` command crawls the market/economic sources listed in
+The `/news` command crawls **30 market/economic sources** listed in
 `src/config/news-sources.json` and upserts normalized items into `news_items`.
 Each source has an id, title, kind, URL, enabled flag and optional per-source
-limit. The default file contains the sources from issue #9:
+limit. Sources are grouped into 4 platform groups:
 
-- Investing, TradingView, Alfa-Forex and Forex Club economic calendars.
-- TradingView, Investing, RBC, Kommersant, Mail.ru, LiteFinance and Euronews
-  market/economics news pages.
-- TradingView markets.
+| Group                | Sources                                                                 |
+| -------------------- | ----------------------------------------------------------------------- |
+| `economic-calendars` | Investing, TradingView, Alfa-Forex, Forex Club — economic calendars.    |
+| `news-portals`       | TradingView, Investing, RBC, Kommersant, Mail.ru, LiteFinance, Euronews — market/economics news. |
+| `reddit-communities` | 10 subreddits (CryptoCurrency, CryptoMarkets, altcoin, Bitcoin, ethtrader, Solana, solend, CryptoMoonShots, trading, Forex) — kind: `reddit`. |
+| `exchange-communities` | Binance, Bybit, OKX, MEXC blogs + Binance and Bybit subreddits.       |
+
+Sources with `kind: "reddit"` use a specialized extractor that reads Reddit
+threads, extracts the self-text/comments, and follows comment-thread links to
+other Reddit posts and external articles. This produces rich cross-referenced
+discoveries from community discussions.
+
+Use `/serching-platforms` to toggle entire groups on/off without editing the
+JSON file. Disabled groups are skipped during the crawl.
 
 Run it from the interactive shell or in one-shot mode:
 
@@ -323,6 +348,21 @@ in two places:
 The API supports both OpenAI-compatible endpoints (`/v1/chat/completions`) and
 the native Anthropic Messages API — detected automatically from the URL. On any
 failure the system degrades gracefully without interrupting the run.
+
+### AI chat tools
+
+When the AI advisor mode is active and uses a chat-capable model, the system
+exposes two research tools to the AI:
+
+- **`/serching-level`** — sets crawl depth/resolution. The AI can request
+  `normal` (fast, shallow), `high` (deep), or `max` (exhaustive) depending on
+  how much context it needs.
+- **`/serching-platforms`** — enables/disables source groups. The AI can toggle
+  specific groups (e.g. enable only `economic-calendars` for fundamentals) to
+  tailor research scope.
+
+These tools are defined in `src/services/chat.ts` and are automatically
+registered when the chat service initializes.
 
 ---
 
