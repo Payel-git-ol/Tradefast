@@ -58,6 +58,20 @@ function RunView({ report, theme }: { report: RunReport; theme: CliTheme }): Rea
           </Text>
         );
       })}
+
+      {report.validation && (
+        <Box marginTop={1}>
+          {report.validation.corrections.length > 0 ? (
+            <Text color={theme.colors.muted}>
+              {'  '}AI: {report.validation.summary}
+            </Text>
+          ) : (
+            <Text color={theme.colors.error}>
+              {'  '}AI Error: {report.validation.raw}
+            </Text>
+          )}
+        </Box>
+      )}
     </Box>
   );
 }

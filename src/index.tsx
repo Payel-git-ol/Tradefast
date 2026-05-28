@@ -143,6 +143,12 @@ async function runHeadless(command: string): Promise<number> {
     } else {
       const runReport = await (name === 'start' ? app.start(reportProgress) : app.update(reportProgress));
       process.stdout.write(`${renderTradeLogLines(runReport).join('\n')}\n`);
+      if (runReport.validation && runReport.validation.corrections.length > 0) {
+        process.stdout.write(`\nAI: ${runReport.validation.summary}\n`);
+        for (const c of runReport.validation.corrections) {
+          process.stdout.write(`  ${c.symbol}: ${c.reason}\n`);
+        }
+      }
     }
     return 0;
   } finally {

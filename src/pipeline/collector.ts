@@ -1,10 +1,11 @@
 import type { LostfastStore, RunKind } from '../db/store.js';
 import { DEFAULT_PARAMETERS, type StrategyParameters } from '../domain/signal.js';
 import { AnalyticsService, type SymbolAnalysis } from '../services/analytics.js';
-import { createAdvisor, type AiAdvisor } from '../services/ai-advisor.js';
+import { createAdvisor, type AiAdvisor, ValidationAdvisor, type ValidationResult } from '../services/ai-advisor.js';
 import { createResilientMarketSourceFor, type MarketDataSource } from '../services/market-data.js';
 import { createScraper, type Scraper } from '../services/scraping.js';
 import { KnowledgeBaseSearch, type SearchProvider } from '../services/search.js';
+import { buildForecast } from '../strategies/forecast.js';
 
 export interface CollectOptions {
   symbols: string[];
@@ -33,6 +34,7 @@ export interface SymbolReport {
   signalsUpdated: number;
   signalsUnchanged: number;
   scrapesAdded: number;
+  assessment: string;
 }
 
 export interface RunReport {
@@ -41,6 +43,7 @@ export interface RunReport {
   symbols: SymbolReport[];
   searchResults: number;
   durationMs: number;
+  validation: ValidationResult | null;
 }
 
 export type ProgressListener = (event: ProgressEvent) => void;
@@ -74,9 +77,10 @@ export class CollectionPipeline {
     const symbols = options.symbols;
 
     // Work units per symbol: fetch, analyze, persist, search, advise (5), plus an
-    // optional scrape when enabled. Add the optional wipe and the final summary.
+    // optional scrape when enabled. Plus one validation step at the end.
+    // Add the optional wipe and the final summary.
     const perSymbol = this.scraper ? 6 : 5;
-    const totalSteps = symbols.length * perSymbol + (kind === 'start' ? 1 : 0) + 1;
+    const totalSteps = symbols.length * perSymbol + (kind === 'start' ? 1 : 0) + 2;
     let step = 0;
     const emit = (e: Omit<ProgressEvent, 'step' | 'totalSteps'>) =>
       onProgress?.({ ...e, step: ++step, totalSteps });
@@ -153,13 +157,46 @@ export class CollectionPipeline {
         signalsUpdated: updated,
         signalsUnchanged: unchanged,
         scrapesAdded,
+        assessment: '',
       });
+    }
+
+    // --- AI validation (single request with all data) -----------------------
+    let validation: ValidationResult | null = null;
+    const hasAiKey = !!(process.env.LOSTFAST_AI_API_KEY ?? process.env.ANTHROPIC_API_KEY);
+    if (hasAiKey && reports.length > 0) {
+      emit({ phase: 'advise', message: 'Running AI validation across all symbols…' });
+
+      const forecasts = reports.map((r) => buildForecast(r.analysis));
+      const newsConsensus = await this.store.getNewsConsensus(30);
+      const allAnalyses = reports.map((r) => r.analysis);
+
+      const validator = new ValidationAdvisor();
+      validation = await validator.validate({ newsConsensus, symbolAnalyses: allAnalyses, forecasts });
+
+      // Attach AI corrections (market reasoning) to symbol reports
+      for (const c of validation.corrections) {
+        const report = reports.find((r) => r.symbol === c.symbol);
+        if (report) report.assessment = c.reason;
+      }
+
+      const correctedCount = validation.corrections.filter((c) => !c.tpCorrect || !c.slCorrect || !c.directionCorrect).length;
+      await this.store.saveInsight(runId, {
+        symbol: '*validation*',
+        model: validation.model,
+        summary: validation.summary,
+        confidence: validation.corrections.length > 0
+          ? (validation.corrections.length - correctedCount) / validation.corrections.length
+          : 0,
+      });
+    } else {
+      emit({ phase: 'advise', message: 'AI corrections skipped (no API key or no data)' });
     }
 
     if (this.scraper) await this.scraper.close();
     await this.store.finishRun(runId, 'completed');
     emit({ phase: 'done', message: `Run #${runId} completed for ${symbols.length} symbol(s)` });
 
-    return { runId, kind, symbols: reports, searchResults: searchCount, durationMs: Date.now() - started };
+    return { runId, kind, symbols: reports, searchResults: searchCount, durationMs: Date.now() - started, validation };
   }
 }

@@ -7,16 +7,18 @@ interface TradeLogRow {
   tp: number | null;
   sl: number | null;
   entryPrice: number | null;
+  assessment: string;
 }
 
-export type TradeLogColumnKey = 'currency' | 'direction' | 'tp' | 'sl' | 'entryPrice';
+export type TradeLogColumnKey = 'currency' | 'direction' | 'tp' | 'sl' | 'entryPrice' | 'assessment';
 
 const columns: { key: TradeLogColumnKey; label: string }[] = [
   { key: 'currency', label: 'Currency' },
-  { key: 'direction', label: 'Direction' },
+  { key: 'direction', label: 'Dir' },
   { key: 'tp', label: 'TP' },
   { key: 'sl', label: 'SL' },
-  { key: 'entryPrice', label: 'Entry price' },
+  { key: 'entryPrice', label: 'Price' },
+  { key: 'assessment', label: 'AI' },
 ];
 
 export interface TradeLogCell {
@@ -43,6 +45,7 @@ function buildTradeLogRow(symbol: SymbolReport): TradeLogRow {
     tp: forecast.tp,
     sl: forecast.sl,
     entryPrice: forecast.entry,
+    assessment: symbol.assessment,
   };
 }
 
@@ -55,6 +58,13 @@ function formatPrice(value: number | null): string {
   return value.toFixed(12);
 }
 
+const MAX_ASSESSMENT_WIDTH = 50;
+
+function truncate(text: string, max: number): string {
+  if (text.length <= max) return text;
+  return text.slice(0, max - 1) + '…';
+}
+
 function displayRows(report: RunReport): Record<TradeLogColumnKey, string>[] {
   const rows = report.symbols.map(buildTradeLogRow);
   const formatted = rows.map((row) => ({
@@ -63,11 +73,12 @@ function displayRows(report: RunReport): Record<TradeLogColumnKey, string>[] {
     tp: formatPrice(row.tp),
     sl: formatPrice(row.sl),
     entryPrice: formatPrice(row.entryPrice),
+    assessment: truncate(row.assessment, MAX_ASSESSMENT_WIDTH),
   }));
 
   return formatted.length > 0
     ? formatted
-    : [{ currency: '', direction: '', tp: '', sl: '', entryPrice: '' }];
+    : [{ currency: '', direction: '', tp: '', sl: '', entryPrice: '', assessment: '' }];
 }
 
 function rowCells(
