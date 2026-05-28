@@ -352,7 +352,7 @@ export function App({ app, version, apiUrl, promptOperatingMode }: AppProps): Re
 
   const changeValue = useCallback((next: string) => {
     setValue(next);
-    setSuggestions(suggestCommands(next).slice(0, 5));
+    setSuggestions(suggestCommands(next));
     setSelectedSuggestionIndex(0);
   }, []);
 
@@ -638,7 +638,7 @@ export function App({ app, version, apiUrl, promptOperatingMode }: AppProps): Re
         setValue(completed);
         setSuggestions([]);
       } else {
-        setSuggestions(suggestCommands(value).slice(0, 5));
+        setSuggestions(suggestCommands(value));
       }
     }
   });
@@ -1154,20 +1154,38 @@ export function App({ app, version, apiUrl, promptOperatingMode }: AppProps): Re
               </Box>
               {suggestions.length > 0 ? (
                 <Box flexDirection="column" marginLeft={2}>
-                  {suggestions.map((command, index) => (
-                    <Text key={command.name}>
-                      <Text color={theme.colors.accent}>
-                        {index === selectedSuggestionIndex ? '> ' : '  '}
-                      </Text>
-                      <Text
-                        bold={index === selectedSuggestionIndex}
-                        color={theme.colors.info}
-                      >
-                        {command.name.padEnd(12)}
-                      </Text>
-                      <Text color={theme.colors.muted}>{command.summary}</Text>
-                    </Text>
-                  ))}
+                  {(() => {
+                    const VISIBLE = 5;
+                    const total = suggestions.length;
+                    const half = Math.floor(VISIBLE / 2);
+                    let start = selectedSuggestionIndex - half;
+                    let end = start + VISIBLE;
+                    if (start < 0) { start = 0; end = VISIBLE; }
+                    if (end > total) { end = total; start = Math.max(0, total - VISIBLE); }
+                    const visible = suggestions.slice(start, end);
+                    const items: React.ReactElement[] = [];
+                    if (start > 0) items.push(<Text key="__more_up" color={theme.colors.muted}>{'  ↑ more'}</Text>);
+                    for (let i = 0; i < visible.length; i++) {
+                      const idx = start + i;
+                      const command = visible[i];
+                      items.push(
+                        <Text key={command.name}>
+                          <Text color={theme.colors.accent}>
+                            {idx === selectedSuggestionIndex ? '> ' : '  '}
+                          </Text>
+                          <Text
+                            bold={idx === selectedSuggestionIndex}
+                            color={theme.colors.info}
+                          >
+                            {command.name.padEnd(12)}
+                          </Text>
+                          <Text color={theme.colors.muted}>{command.summary}</Text>
+                        </Text>,
+                      );
+                    }
+                    if (end < total) items.push(<Text key="__more_down" color={theme.colors.muted}>{'  ↓ more'}</Text>);
+                    return items;
+                  })()}
                 </Box>
               ) : null}
             </>
