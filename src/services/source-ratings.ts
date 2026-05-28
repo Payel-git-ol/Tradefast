@@ -92,6 +92,25 @@ export class SourceRatingService {
     }
   }
 
+  async adjustGrade(sourceIdOrTitle: string, delta: number): Promise<SourceRating & { foundByTitle: boolean } | undefined> {
+    const byId = await this.store.getSourceRating(sourceIdOrTitle);
+    if (byId) {
+      const credibilityScore = clampScore(byId.credibilityScore + delta);
+      await this.store.updateSourceRating(byId.sourceId, { credibilityScore });
+      return { ...byId, credibilityScore, lastUpdated: new Date().toISOString(), foundByTitle: false };
+    }
+
+    const all = await this.store.getAllSourceRatings();
+    const match = all.find((r) => r.sourceTitle.toLowerCase().includes(sourceIdOrTitle.toLowerCase()));
+    if (match) {
+      const credibilityScore = clampScore(match.credibilityScore + delta);
+      await this.store.updateSourceRating(match.sourceId, { credibilityScore });
+      return { ...match, credibilityScore, lastUpdated: new Date().toISOString(), foundByTitle: true };
+    }
+
+    return undefined;
+  }
+
   scoreLabel(score: number): string {
     if (score >= 0.9) return 'high';
     if (score >= 0.7) return 'medium';

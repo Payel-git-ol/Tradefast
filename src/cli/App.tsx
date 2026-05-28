@@ -788,6 +788,14 @@ export function App({ app, version, apiUrl, promptOperatingMode }: AppProps): Re
             const updated = await app.recordLoudClaim(args[1]);
             if (updated) message = `${args[1]}: loud claim → ${(updated.credibilityScore * 100).toFixed(0)}%`;
             else push({ kind: 'error', text: `Source "${args[1]}" not found` });
+          } else if (args.length >= 2 && /^[+-]?\d+$/.test(args[args.length - 1])) {
+            const grade = parseInt(args[args.length - 1], 10);
+            const title = args.slice(0, -1).join(' ');
+            const updated = await app.adjustRatingGrade(title, grade);
+            if (updated) {
+              const label = updated.foundByTitle ? `"${updated.sourceTitle}"` : updated.sourceId;
+              message = `${label}: grade ${grade > 0 ? '+' : ''}${grade} → ${(updated.credibilityScore * 100).toFixed(0)}%`;
+            } else push({ kind: 'error', text: `Source "${title}" not found` });
           }
           push({ kind: 'ratings', ratings, message });
         } catch (error) {
@@ -1010,6 +1018,25 @@ export function App({ app, version, apiUrl, promptOperatingMode }: AppProps): Re
                 setPlatformSelectorOpen(true);
                 return 'Platform selector opened — toggle sources with Space, confirm with Enter.';
               }
+              case 'run_ratings_adjust': {
+                const src = (toolArgs.source as string) || '';
+                const grade = typeof toolArgs.grade === 'number' ? toolArgs.grade : 0;
+                if (src && grade !== 0) {
+                  const updated = await app.adjustRatingGrade(src, grade);
+                  if (updated) {
+                    const label = updated.foundByTitle ? `"${updated.sourceTitle}"` : updated.sourceId;
+                    push({
+                      kind: 'ratings',
+                      ratings: await app.ratings(),
+                      message: `${label}: grade ${grade > 0 ? '+' : ''}${grade} → ${(updated.credibilityScore * 100).toFixed(0)}%`,
+                    });
+                    return `Rating adjusted for ${label}: grade ${grade > 0 ? '+' : ''}${grade}, new score ${(updated.credibilityScore * 100).toFixed(0)}%.`;
+                  }
+                }
+                const ratings = await app.ratings();
+                push({ kind: 'ratings', ratings });
+                return `Showing ${ratings.length} source ratings. Use run_ratings_adjust with source name and grade to modify.`;
+              }
               case 'get_exchange':
                 return app.config.exchange;
               case 'get_timeframe':
@@ -1047,6 +1074,7 @@ export function App({ app, version, apiUrl, promptOperatingMode }: AppProps): Re
           push({ kind: 'status', status: await app.status() });
         } else if (name === 'clear-chat') {
           setHistory([]);
+          chatService.current.reset();
         } else if (name === 'clear') {
           const pruned = await app.clear();
           push({

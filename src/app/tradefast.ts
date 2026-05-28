@@ -264,6 +264,10 @@ export class Tradefast {
     return this.ratingService.recordLoudClaim(sourceId);
   }
 
+  async adjustRatingGrade(sourceIdOrTitle: string, grade: number): Promise<import('../services/source-ratings.js').SourceRating & { foundByTitle: boolean } | undefined> {
+    return this.ratingService.adjustGrade(sourceIdOrTitle, grade / 100);
+  }
+
   close(): Promise<void> {
     return this.handle.close();
   }
