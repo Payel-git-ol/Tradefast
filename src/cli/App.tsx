@@ -4,13 +4,16 @@ import TextInput from 'ink-text-input';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 
 import type { Lostfast } from '../app/lostfast.js';
+import { ChatService } from '../services/chat.js';
 import { COMMANDS, completeCommand, parseCommand, suggestCommands, type CommandSpec } from './commands.js';
 import { OutputLine, type OutputItem } from './output.js';
-import { saveTheme, saveExchange, saveInterval, saveMode } from './preferences.js';
+import { saveTheme, saveExchange, saveInterval, saveMode, saveSearchingLevel, saveSearchingPlatforms } from './preferences.js';
 import { getTheme, themeNames, type CliTheme, type ThemeName } from './theme.js';
 import { getExchange, exchangeNames, type ExchangeName } from './exchanges.js';
 import { getInterval, intervalNames, type IntervalName } from './intervals.js';
 import { getMode, modeNames, type ModeName } from './modes.js';
+import { searchLevelNames, getSearchLevel, type SearchLevelName } from './search-level.js';
+import { sourceGroupIds, getSourceGroup, resolveSourceIds, DEFAULT_ENABLED_GROUPS, type SourceGroupId } from './sources.js';
 
 export interface AppProps {
   app: Lostfast;
@@ -202,6 +205,87 @@ function CurrencySelector({
   );
 }
 
+function LevelSelector({
+  theme,
+  selectedIndex,
+  current,
+}: {
+  theme: CliTheme;
+  selectedIndex: number;
+  current: SearchLevelName;
+}): React.ReactElement {
+  return (
+    <Box
+      flexDirection="column"
+      borderStyle="round"
+      borderColor={theme.colors.border}
+      paddingX={1}
+      marginTop={1}
+    >
+      <Text bold color={theme.colors.accent}>
+        Select research depth
+      </Text>
+      {searchLevelNames().map((name, index) => {
+        const option = getSearchLevel(name);
+        const selected = index === selectedIndex;
+        const isCurrent = option.name === current;
+
+        return (
+          <Text key={name} color={selected ? theme.colors.info : undefined}>
+            {selected ? '> ' : '  '}
+            <Text bold={selected}>{option.label.padEnd(8)}</Text>
+            <Text color={theme.colors.muted}>{option.description}</Text>
+            {isCurrent ? <Text color={theme.colors.muted}> (current)</Text> : null}
+          </Text>
+        );
+      })}
+    </Box>
+  );
+}
+
+function PlatformSelector({
+  theme,
+  cursorIndex,
+  enabledGroups,
+}: {
+  theme: CliTheme;
+  cursorIndex: number;
+  enabledGroups: SourceGroupId[];
+}): React.ReactElement {
+  return (
+    <Box
+      flexDirection="column"
+      borderStyle="round"
+      borderColor={theme.colors.border}
+      paddingX={1}
+      marginTop={1}
+    >
+      <Text bold color={theme.colors.accent}>
+        Select research platforms
+      </Text>
+      <Text color={theme.colors.muted}>
+        Space=toggle, Enter=done, Esc=cancel
+      </Text>
+      {sourceGroupIds().map((id, index) => {
+        const group = getSourceGroup(id)!;
+        const checked = enabledGroups.includes(id);
+        const focused = index === cursorIndex;
+
+        return (
+          <Text key={id} color={focused ? theme.colors.info : undefined}>
+            {focused ? '> ' : '  '}
+            <Text bold={focused}>{checked ? '[x]' : '[ ]'}</Text>
+            {' '}
+            <Text bold={focused && checked}>{group.label}</Text>
+            {' '}
+            <Text color={theme.colors.muted}>{group.description}</Text>
+          </Text>
+        );
+      })}
+    </Box>
+  );
+}
+
 /**
  * The interactive shell. A static banner and transcript scroll above a single
  * input line — the same layout as the Gemini CLI. All side effects go through
@@ -229,9 +313,32 @@ export function App({ app, version, apiUrl, promptOperatingMode }: AppProps): Re
   const [mode, setMode] = useState<ModeName>(() => getMode(app.config.mode).name as ModeName);
   const [currencySelectorOpen, setCurrencySelectorOpen] = useState(false);
   const [selectedCurrencyIndex, setSelectedCurrencyIndex] = useState(0);
+  const [levelSelectorOpen, setLevelSelectorOpen] = useState(false);
+  const [selectedLevelIndex, setSelectedLevelIndex] = useState(0);
+  const [searchingLevel, setSearchingLevel] = useState<SearchLevelName>(() => getSearchLevel(app.config.searchingLevel).name as SearchLevelName);
+  const [platformSelectorOpen, setPlatformSelectorOpen] = useState(false);
+  const [platformCursorIndex, setPlatformCursorIndex] = useState(0);
+  const [enabledPlatforms, setEnabledPlatforms] = useState<SourceGroupId[]>(() => {
+    if (Array.isArray(app.config.searchingPlatforms) && app.config.searchingPlatforms.length > 0) {
+      const valid = app.config.searchingPlatforms.filter((g): g is SourceGroupId =>
+        (sourceGroupIds() as string[]).includes(g),
+      );
+      return valid.length > 0 ? valid : [...DEFAULT_ENABLED_GROUPS];
+    }
+    return [...DEFAULT_ENABLED_GROUPS];
+  });
   const [busy, setBusy] = useState(false);
+  const newsCrawlOptions = useCallback(
+    () => {
+      const level = getSearchLevel(searchingLevel);
+      const sourceIds = resolveSourceIds(enabledPlatforms);
+      return { sourceIds, maxDepth: level.maxDepth, maxPagesPerSource: level.maxPagesPerSource, maxLinksPerPage: level.maxLinksPerPage, scrollPasses: level.scrollPasses, settleMs: level.settleMs } as const;
+    },
+    [searchingLevel, enabledPlatforms],
+  );
   const [progress, setProgress] = useState<{ message: string; step: number; totalSteps: number } | null>(null);
   const nextId = useRef(1);
+  const chatService = useRef(new ChatService());
 
   // Distributive omit so each union member keeps its own discriminant + fields.
   const push = useCallback((item: OutputItem extends infer T ? (T extends T ? Omit<T, 'id'> : never) : never) => {
@@ -345,6 +452,37 @@ export function App({ app, version, apiUrl, promptOperatingMode }: AppProps): Re
     [app, push, theme],
   );
 
+  const applyLevel = useCallback(
+    (name: SearchLevelName) => {
+      const next = getSearchLevel(name);
+      setSearchingLevel(next.name as SearchLevelName);
+      setLevelSelectorOpen(false);
+      void saveSearchingLevel(next.name as SearchLevelName);
+      push({ kind: 'text', text: `Research depth: ${next.label} — ${next.description}`, color: theme.colors.info });
+    },
+    [push, theme],
+  );
+
+  const togglePlatform = useCallback(
+    (id: SourceGroupId) => {
+      setEnabledPlatforms((prev) =>
+        prev.includes(id) ? prev.filter((g) => g !== id) : [...prev, id],
+      );
+    },
+    [],
+  );
+
+  const applyPlatforms = useCallback(
+    () => {
+      setPlatformSelectorOpen(false);
+      void saveSearchingPlatforms(enabledPlatforms);
+      const count = resolveSourceIds(enabledPlatforms).length;
+      const groups = enabledPlatforms.map((id) => getSourceGroup(id)?.label ?? id).join(', ');
+      push({ kind: 'text', text: `Research platforms: ${groups} (${count} sources)`, color: theme.colors.info });
+    },
+    [enabledPlatforms, push, theme],
+  );
+
   const applyCurrency = useCallback(
     (symbol: string) => {
       setCurrencySelectorOpen(false);
@@ -450,6 +588,34 @@ export function App({ app, version, apiUrl, promptOperatingMode }: AppProps): Re
       return;
     }
 
+    if (levelSelectorOpen && !busy) {
+      if (key.escape) {
+        setLevelSelectorOpen(false);
+      } else if (key.upArrow) {
+        setSelectedLevelIndex((index) => (index - 1 + searchLevelNames().length) % searchLevelNames().length);
+      } else if (key.downArrow) {
+        setSelectedLevelIndex((index) => (index + 1) % searchLevelNames().length);
+      } else if (key.return) {
+        applyLevel(searchLevelNames()[selectedLevelIndex]);
+      }
+      return;
+    }
+
+    if (platformSelectorOpen && !busy) {
+      if (key.escape) {
+        setPlatformSelectorOpen(false);
+      } else if (key.upArrow) {
+        setPlatformCursorIndex((index) => (index - 1 + sourceGroupIds().length) % sourceGroupIds().length);
+      } else if (key.downArrow) {
+        setPlatformCursorIndex((index) => (index + 1) % sourceGroupIds().length);
+      } else if (key.return) {
+        applyPlatforms();
+      } else if (_input === ' ') {
+        togglePlatform(sourceGroupIds()[platformCursorIndex]);
+      }
+      return;
+    }
+
     if (suggestions.length > 0 && !busy) {
       if (key.upArrow) {
         setSelectedSuggestionIndex((i) => (i - 1 + suggestions.length) % suggestions.length);
@@ -515,6 +681,10 @@ export function App({ app, version, apiUrl, promptOperatingMode }: AppProps): Re
           openExchangeSelector();
           return;
         }
+        if (args[0] === 'check') {
+          push({ kind: 'text', text: `Current exchange: ${getExchange(app.config.exchange).label}`, color: theme.colors.info });
+          return;
+        }
         const next = getExchange(args[0]);
         if (next.name !== args[0].toLowerCase()) {
           push({ kind: 'error', text: `Unknown exchange "${args[0]}". Available: ${exchangeNames().join(', ')}` });
@@ -531,6 +701,10 @@ export function App({ app, version, apiUrl, promptOperatingMode }: AppProps): Re
           openModeSelector();
           return;
         }
+        if (args[0] === 'check') {
+          push({ kind: 'text', text: `Current mode: ${getMode(app.config.mode).label}`, color: theme.colors.info });
+          return;
+        }
         const next = getMode(args[0]);
         if (next.name !== args[0].toLowerCase()) {
           push({ kind: 'error', text: `Unknown operating mode "${args[0]}". Available: ${modeNames().join(', ')}` });
@@ -544,6 +718,10 @@ export function App({ app, version, apiUrl, promptOperatingMode }: AppProps): Re
           openIntervalSelector();
           return;
         }
+        if (args[0] === 'check') {
+          push({ kind: 'text', text: `Current timeframe: ${getInterval(app.config.interval).label}`, color: theme.colors.info });
+          return;
+        }
         const next = getInterval(args[0]);
         if (next.name !== args[0].toLowerCase()) {
           push({ kind: 'error', text: `Unknown timeframe "${args[0]}". Available: ${intervalNames().join(', ')}` });
@@ -555,6 +733,40 @@ export function App({ app, version, apiUrl, promptOperatingMode }: AppProps): Re
         push({ kind: 'text', text: `Trading timeframe: ${next.label}`, color: theme.colors.info });
         return;
       }
+      if (name === 'serching-level') {
+        if (args.length === 0) {
+          setSelectedLevelIndex(searchLevelNames().findIndex((n) => n === searchingLevel));
+          setLevelSelectorOpen(true);
+          return;
+        }
+        if (args[0] === 'check') {
+          const current = getSearchLevel(searchingLevel);
+          push({ kind: 'text', text: `Research depth: ${current.label} — ${current.description}`, color: theme.colors.info });
+          return;
+        }
+        const next = getSearchLevel(args[0]);
+        if (next.name !== args[0].toLowerCase()) {
+          push({ kind: 'error', text: `Unknown search level "${args[0]}". Available: ${searchLevelNames().join(', ')}` });
+          return;
+        }
+        applyLevel(next.name as SearchLevelName);
+        return;
+      }
+      if (name === 'serching-platforms') {
+        if (args.length === 0) {
+          setPlatformCursorIndex(0);
+          setPlatformSelectorOpen(true);
+          return;
+        }
+        if (args[0] === 'check') {
+          const groups = enabledPlatforms.map((id) => getSourceGroup(id)?.label ?? id).join(', ');
+          const count = resolveSourceIds(enabledPlatforms).length;
+          push({ kind: 'text', text: `Research platforms: ${groups} (${count} sources)`, color: theme.colors.info });
+          return;
+        }
+        push({ kind: 'error', text: 'Use /serching-platforms without arguments to open the platform selector.' });
+        return;
+      }
       if (name === 'strategies') {
         push({ kind: 'strategies', list: app.strategies() });
         return;
@@ -562,6 +774,10 @@ export function App({ app, version, apiUrl, promptOperatingMode }: AppProps): Re
       if (name === 'currency') {
         if (args.length === 0) {
           openCurrencySelector();
+          return;
+        }
+        if (args[0] === 'check') {
+          push({ kind: 'text', text: `Tracked symbols: ${app.config.symbols.join(', ')}`, color: theme.colors.info });
           return;
         }
         const symbol = args[0].toUpperCase();
@@ -599,7 +815,194 @@ export function App({ app, version, apiUrl, promptOperatingMode }: AppProps): Re
         return;
       }
       if (name === 'unknown') {
-        push({ kind: 'error', text: `Unknown command "${raw}". Type /help.` });
+        if (!chatService.current.enabled) {
+          push({ kind: 'error', text: `Unknown command "${raw}". Type /help.` });
+          return;
+        }
+        setBusy(true);
+        try {
+          const response = await chatService.current.chat(raw, async (toolName, toolArgs) => {
+            switch (toolName) {
+              case 'run_start':
+              case 'run_update': {
+                const report = await (toolName === 'run_start'
+                  ? app.start((e) => setProgress(e))
+                  : app.update((e) => setProgress(e)));
+                push({ kind: 'run', report });
+                  return JSON.stringify(report.symbols.map(s => {
+                  const cs = s.analysis.analytics.consensusScore;
+                  return {
+                    symbol: s.symbol,
+                    direction: cs > 0.15 ? 'long' : cs < -0.15 ? 'short' : 'neutral',
+                    consensusScore: cs,
+                    assessment: s.assessment,
+                  };
+                }));
+              }
+              case 'run_backtest': {
+                const report = await app.backtest((e) => setProgress(e));
+                push({ kind: 'backtest', report });
+                return JSON.stringify({
+                  symbols: report.results.map(r => r.symbol),
+                  totalTrades: report.totals.trades,
+                  winRate: report.totals.winRate,
+                  expectancy: report.totals.expectancy,
+                });
+              }
+              case 'run_news': {
+                const report = await app.news((e) => setProgress(e), newsCrawlOptions());
+                push({ kind: 'news', report });
+                return JSON.stringify({
+                  sources: report.sources.length,
+                  items: report.items.length,
+                  inserted: report.inserted,
+                });
+              }
+              case 'run_status': {
+                const status = await app.status();
+                push({ kind: 'status', status });
+                return JSON.stringify(status);
+              }
+              case 'run_clear': {
+                const pruned = await app.clear();
+                push({
+                  kind: 'text',
+                  text: `Pruned ${pruned} outdated run(s). Search table preserved.`,
+                  color: theme.colors.info,
+                });
+                return `Pruned ${pruned} outdated runs.`;
+              }
+              case 'run_strategies': {
+                const list = app.strategies();
+                push({ kind: 'strategies', list });
+                return JSON.stringify(list);
+              }
+              case 'run_theme': {
+                const tName = (toolArgs.name as string) || '';
+                if (tName) {
+                  const next = getTheme(tName);
+                  if (next.name === tName.toLowerCase()) {
+                    setTheme(next);
+                    void saveTheme(next.name as ThemeName);
+                    push({ kind: 'text', text: `Theme: ${next.label}`, color: next.colors.info });
+                    return `Theme changed to ${next.label}.`;
+                  }
+                }
+                openThemeSelector();
+                return 'Theme selector opened — pick a theme.';
+              }
+              case 'run_exchange': {
+                const eName = (toolArgs.name as string) || '';
+                if (eName) {
+                  const next = getExchange(eName);
+                  if (next.name === eName.toLowerCase()) {
+                    setExchange(next.name as ExchangeName);
+                    void saveExchange(next.name as ExchangeName);
+                    app.setExchange(next.name);
+                    push({ kind: 'text', text: `Exchange: ${next.label} (live data source updated)`, color: theme.colors.info });
+                    return `Exchange changed to ${next.label}.`;
+                  }
+                }
+                openExchangeSelector();
+                return 'Exchange selector opened — pick an exchange.';
+              }
+              case 'run_operating_mode': {
+                const mName = (toolArgs.name as string) || '';
+                if (mName) {
+                  const next = getMode(mName);
+                  if (next.name === mName.toLowerCase()) {
+                    applyMode(next.name as ModeName);
+                    return `Operating mode changed to ${next.label}.`;
+                  }
+                }
+                openModeSelector();
+                return 'Mode selector opened — pick a mode.';
+              }
+              case 'run_operating_mode_time': {
+                const iName = (toolArgs.name as string) || '';
+                if (iName) {
+                  const next = getInterval(iName);
+                  if (next.name === iName.toLowerCase()) {
+                    setInterval(next.name as IntervalName);
+                    void saveInterval(next.name as IntervalName);
+                    app.setInterval(next.name);
+                    push({ kind: 'text', text: `Trading timeframe: ${next.label}`, color: theme.colors.info });
+                    return `Timeframe changed to ${next.label}.`;
+                  }
+                }
+                openIntervalSelector();
+                return 'Timeframe selector opened — pick a timeframe.';
+              }
+              case 'run_currency': {
+                const symbol = ((toolArgs.symbol as string) || '').toUpperCase();
+                if (symbol && app.config.symbols.includes(symbol)) {
+                  const forecast = await app.forecastCurrency(symbol, (e) => setProgress(e));
+                  push({ kind: 'run', report: forecast.report });
+                  push({ kind: 'chart', data: { symbol, interval: app.config.interval, candles: forecast.candles } });
+                  if (forecast.price != null) {
+                    push({ kind: 'text', text: `${symbol} last price: ${forecast.price}`, color: theme.colors.info });
+                  }
+                  const cs = forecast.report.symbols[0]?.analysis.analytics.consensusScore ?? 0;
+                  return JSON.stringify({
+                    symbol,
+                    price: forecast.price,
+                    direction: cs > 0.15 ? 'long' : cs < -0.15 ? 'short' : 'neutral',
+                  });
+                }
+                openCurrencySelector();
+                return 'Currency selector opened — pick a currency.';
+              }
+              case 'run_help': {
+                const text = COMMANDS.map(c => `  ${c.name.padEnd(12)} ${c.summary}`).join('\n');
+                return `Available commands:\n${text}`;
+              }
+              case 'run_serching_level': {
+                const slName = (toolArgs.name as string) || '';
+                if (slName) {
+                  const next = getSearchLevel(slName);
+                  if (next.name === slName.toLowerCase()) {
+                    applyLevel(next.name as SearchLevelName);
+                    return `Research depth changed to ${next.label}.`;
+                  }
+                }
+                setSelectedLevelIndex(searchLevelNames().findIndex((n) => n === searchingLevel));
+                setLevelSelectorOpen(true);
+                return 'Level selector opened — pick a depth.';
+              }
+              case 'run_serching_platforms': {
+                const groups = toolArgs.groups as string[] | undefined;
+                if (groups && Array.isArray(groups) && groups.length > 0) {
+                  const valid = groups.filter((g) => sourceGroupIds().includes(g as SourceGroupId));
+                  if (valid.length > 0) {
+                    setEnabledPlatforms(valid as SourceGroupId[]);
+                    void saveSearchingPlatforms(valid as SourceGroupId[]);
+                    const count = resolveSourceIds(valid as SourceGroupId[]).length;
+                    return `Research platforms set to ${valid.length} group(s) (${count} sources).`;
+                  }
+                }
+                setPlatformCursorIndex(0);
+                setPlatformSelectorOpen(true);
+                return 'Platform selector opened — toggle sources with Space, confirm with Enter.';
+              }
+              case 'get_exchange':
+                return app.config.exchange;
+              case 'get_timeframe':
+                return app.config.interval;
+              case 'get_mode':
+                return app.config.mode;
+              case 'get_currency':
+                return JSON.stringify(app.config.symbols);
+              default:
+                return `Unknown tool: ${toolName}`;
+            }
+          });
+          push({ kind: 'ai', text: response });
+        } catch (error) {
+          push({ kind: 'error', text: error instanceof Error ? error.message : String(error) });
+        } finally {
+          setBusy(false);
+          setProgress(null);
+        }
         return;
       }
 
@@ -613,7 +1016,7 @@ export function App({ app, version, apiUrl, promptOperatingMode }: AppProps): Re
         } else if (name === 'backtest') {
           push({ kind: 'backtest', report: await app.backtest((e) => setProgress(e)) });
         } else if (name === 'news') {
-          push({ kind: 'news', report: await app.news((e) => setProgress(e)) });
+          push({ kind: 'news', report: await app.news((e) => setProgress(e), newsCrawlOptions()) });
         } else if (name === 'status') {
           push({ kind: 'status', status: await app.status() });
         } else if (name === 'clear') {
@@ -631,7 +1034,7 @@ export function App({ app, version, apiUrl, promptOperatingMode }: AppProps): Re
         setProgress(null);
       }
     },
-    [apiUrl, app, openThemeSelector, openExchangeSelector, openIntervalSelector, openModeSelector, openCurrencySelector, applyMode, push, quit, theme],
+    [apiUrl, app, openThemeSelector, openExchangeSelector, openIntervalSelector, openModeSelector, openCurrencySelector, applyMode, applyLevel, applyPlatforms, searchingLevel, enabledPlatforms, newsCrawlOptions, push, quit, theme],
   );
 
   const onSubmit = useCallback(
@@ -674,6 +1077,14 @@ export function App({ app, version, apiUrl, promptOperatingMode }: AppProps): Re
             <ModeSelector theme={theme} selectedIndex={selectedModeIndex} current={mode} />
           ) : currencySelectorOpen ? (
             <CurrencySelector theme={theme} selectedIndex={selectedCurrencyIndex} symbols={app.config.symbols} />
+          ) : levelSelectorOpen ? (
+            <LevelSelector theme={theme} selectedIndex={selectedLevelIndex} current={searchingLevel} />
+          ) : platformSelectorOpen ? (
+            <PlatformSelector
+              theme={theme}
+              cursorIndex={platformCursorIndex}
+              enabledGroups={enabledPlatforms}
+            />
           ) : (
             <>
               <Box>

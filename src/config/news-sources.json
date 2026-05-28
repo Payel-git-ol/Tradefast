@@ -98,7 +98,7 @@
   {
     "id": "reddit-economy",
     "title": "Reddit r/economy",
-    "kind": "news",
+    "kind": "reddit",
     "url": "https://www.reddit.com/r/economy/",
     "enabled": true,
     "maxItems": 6
@@ -106,7 +106,7 @@
   {
     "id": "reddit-finance",
     "title": "Reddit r/Finance",
-    "kind": "news",
+    "kind": "reddit",
     "url": "https://www.reddit.com/r/Finance/",
     "enabled": true,
     "maxItems": 6
@@ -114,7 +114,7 @@
   {
     "id": "reddit-stocks",
     "title": "Reddit r/stocks",
-    "kind": "news",
+    "kind": "reddit",
     "url": "https://www.reddit.com/r/stocks/",
     "enabled": true,
     "maxItems": 6
@@ -122,7 +122,7 @@
   {
     "id": "reddit-investing",
     "title": "Reddit r/investing",
-    "kind": "news",
+    "kind": "reddit",
     "url": "https://www.reddit.com/r/investing/",
     "enabled": true,
     "maxItems": 6
@@ -130,7 +130,7 @@
   {
     "id": "reddit-wallstreetbets",
     "title": "Reddit r/wallstreetbets",
-    "kind": "news",
+    "kind": "reddit",
     "url": "https://www.reddit.com/r/wallstreetbets/",
     "enabled": true,
     "maxItems": 6
@@ -138,7 +138,7 @@
   {
     "id": "reddit-stockmarket",
     "title": "Reddit r/StockMarket",
-    "kind": "news",
+    "kind": "reddit",
     "url": "https://www.reddit.com/r/StockMarket/",
     "enabled": true,
     "maxItems": 6
@@ -146,7 +146,7 @@
   {
     "id": "reddit-forex",
     "title": "Reddit r/Forex",
-    "kind": "news",
+    "kind": "reddit",
     "url": "https://www.reddit.com/r/Forex/",
     "enabled": true,
     "maxItems": 6
@@ -154,7 +154,7 @@
   {
     "id": "reddit-cryptocurrency",
     "title": "Reddit r/CryptoCurrency",
-    "kind": "news",
+    "kind": "reddit",
     "url": "https://www.reddit.com/r/CryptoCurrency/",
     "enabled": true,
     "maxItems": 6
@@ -162,7 +162,7 @@
   {
     "id": "reddit-econ",
     "title": "Reddit r/econ",
-    "kind": "news",
+    "kind": "reddit",
     "url": "https://www.reddit.com/r/econ/",
     "enabled": true,
     "maxItems": 6
@@ -170,7 +170,7 @@
   {
     "id": "reddit-financialnews",
     "title": "Reddit r/FinancialNews",
-    "kind": "news",
+    "kind": "reddit",
     "url": "https://www.reddit.com/r/FinancialNews/",
     "enabled": true,
     "maxItems": 6
@@ -188,7 +188,7 @@
   {
     "id": "binance-reddit",
     "title": "Reddit r/binance",
-    "kind": "community",
+    "kind": "reddit",
     "exchange": "binance",
     "url": "https://www.reddit.com/r/binance/",
     "enabled": true,
@@ -206,7 +206,7 @@
   {
     "id": "bybit-reddit",
     "title": "Reddit r/Bybit",
-    "kind": "community",
+    "kind": "reddit",
     "exchange": "bybit",
     "url": "https://www.reddit.com/r/Bybit/",
     "enabled": true,
@@ -224,7 +224,7 @@
   {
     "id": "okx-reddit",
     "title": "Reddit r/OKX",
-    "kind": "community",
+    "kind": "reddit",
     "exchange": "okx",
     "url": "https://www.reddit.com/r/OKX/",
     "enabled": true,
@@ -242,7 +242,7 @@
   {
     "id": "mexc-reddit",
     "title": "Reddit r/MEXC",
-    "kind": "community",
+    "kind": "reddit",
     "exchange": "mexc",
     "url": "https://www.reddit.com/r/MEXC/",
     "enabled": true,

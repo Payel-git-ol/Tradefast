@@ -3,7 +3,7 @@ import { LostfastStore } from '../db/store.js';
 import type { AnalyticsRow } from '../db/store.js';
 import { loadConfig, type LostfastConfig } from '../config.js';
 import type { Candle } from '../domain/candle.js';
-import { CollectionPipeline, type ProgressListener, type RunReport } from '../pipeline/collector.js';
+import { CollectionPipeline, type CollectOptions, type ProgressListener, type RunReport } from '../pipeline/collector.js';
 import {
   aggregateBacktests,
   backtestSymbol,
@@ -103,7 +103,7 @@ export class Lostfast {
   }
 
   /** `/start` — clear prior run data (keeping the search table) and analyse afresh. */
-  async start(onProgress?: ProgressListener): Promise<RunReport> {
+  async start(onProgress?: ProgressListener, extra?: Partial<CollectOptions>): Promise<RunReport> {
     await this.clearNewsConsensus(); // fresh big crowd table on every full start
     return this.pipeline.collect(
       'start',
@@ -112,13 +112,14 @@ export class Lostfast {
         interval: this.config.interval,
         limit: this.config.candleLimit,
         accountBalance: this.config.accountBalance,
+        ...extra,
       },
       onProgress,
     );
   }
 
   /** `/update` — re-analyse, writing only rows that actually changed. */
-  update(onProgress?: ProgressListener): Promise<RunReport> {
+  update(onProgress?: ProgressListener, extra?: Partial<CollectOptions>): Promise<RunReport> {
     return this.pipeline.collect(
       'update',
       {
@@ -126,6 +127,7 @@ export class Lostfast {
         interval: this.config.interval,
         limit: this.config.candleLimit,
         accountBalance: this.config.accountBalance,
+        ...extra,
       },
       onProgress,
     );
@@ -163,7 +165,7 @@ export class Lostfast {
   }
 
   /** `/currency` — run a full forecast for a single symbol, including news consensus. */
-  async forecastCurrency(symbol: string, onProgress?: ProgressListener): Promise<CurrencyForecast> {
+  async forecastCurrency(symbol: string, onProgress?: ProgressListener, extra?: Partial<CollectOptions>): Promise<CurrencyForecast> {
     const report = await this.pipeline.collect(
       'update',
       {
@@ -171,6 +173,7 @@ export class Lostfast {
         interval: this.config.interval,
         limit: this.config.candleLimit,
         accountBalance: this.config.accountBalance,
+        ...extra,
       },
       onProgress,
     );
@@ -201,8 +204,8 @@ export class Lostfast {
     return this.store.pruneOutdated();
   }
 
-  async news(onProgress?: NewsProgressListener): Promise<PersistedNewsCrawlReport> {
-    const crawlReport = await this.newsCrawler.crawl(onProgress);
+  async news(onProgress?: NewsProgressListener, crawlOptions?: Partial<import('../services/news-crawler.js').NewsCrawlOptions>): Promise<PersistedNewsCrawlReport> {
+    const crawlReport = await this.newsCrawler.crawl(onProgress, crawlOptions);
     let inserted = 0;
     let updated = 0;
     let unchanged = 0;

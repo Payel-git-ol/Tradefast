@@ -22,7 +22,8 @@ export type OutputItem =
   | { id: number; kind: 'news'; report: PersistedNewsCrawlReport }
   | { id: number; kind: 'status'; status: StatusReport }
   | { id: number; kind: 'strategies'; list: { id: string; title: string }[] }
-  | { id: number; kind: 'chart'; data: ChartData };
+  | { id: number; kind: 'chart'; data: ChartData }
+  | { id: number; kind: 'ai'; text: string };
 
 function RunView({ report, theme }: { report: RunReport; theme: CliTheme }): React.ReactElement {
   const parts = renderTradeLogParts(report);
@@ -48,6 +49,7 @@ function RunView({ report, theme }: { report: RunReport; theme: CliTheme }): Rea
             {part.cells.map((cell) => (
               <React.Fragment key={cell.key}>
                 <Text
+                  bold={cell.key === 'assessment' && cell.value.length > 0}
                   color={part.kind === 'row' && cell.key === 'direction' ? directionColor(cell.value, theme) : undefined}
                 >
                   {cell.text}
@@ -255,5 +257,12 @@ export function OutputLine({
       return <StrategiesView list={item.list} theme={theme} />;
     case 'chart':
       return <CandleChartView data={item.data} theme={theme} />;
+    case 'ai':
+      return (
+        <Box flexDirection="column" marginY={1}>
+          <Text bold color={theme.colors.accent}>▌AI</Text>
+          <Text color={theme.colors.muted}>{item.text}</Text>
+        </Box>
+      );
   }
 }

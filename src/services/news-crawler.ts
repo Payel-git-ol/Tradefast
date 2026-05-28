@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises';
 
 import configuredNewsSources from '../config/news-sources.json' with { type: 'json' };
 
-export type NewsSourceKind = 'economic-calendar' | 'news' | 'market' | 'community';
+export type NewsSourceKind = 'economic-calendar' | 'news' | 'market' | 'community' | 'reddit';
 
 export type ExchangeCommunity = 'binance' | 'okx' | 'bybit' | 'mexc';
 
@@ -14,7 +14,7 @@ export interface NewsSource {
   url: string;
   enabled?: boolean;
   maxItems?: number;
-  /** When kind==='community', indicates which exchange's community this source belongs to. */
+  /** When kind==='community' or kind==='reddit', indicates which exchange's community this source belongs to. */
   exchange?: ExchangeCommunity;
 }
 
@@ -52,6 +52,9 @@ export interface NewsFetchOptions {
   scrollPasses: number;
   settleMs: number;
   maxCandidates: number;
+  maxDepth?: number;
+  maxPages?: number;
+  maxLinksPerPage?: number;
 }
 
 export interface NewsPageFetcher {
@@ -145,11 +148,12 @@ export class NewsCrawler {
     private readonly options: NewsCrawlOptions = {},
   ) {}
 
-  async crawl(onProgress?: NewsProgressListener): Promise<NewsCrawlReport> {
+  async crawl(onProgress?: NewsProgressListener, overrides?: Partial<NewsCrawlOptions>): Promise<NewsCrawlReport> {
+    const opts: NewsCrawlOptions = { ...this.options, ...overrides };
     const started = Date.now();
     const activeSources = this.sources
       .filter((source) => source.enabled !== false)
-      .filter((source) => !this.options.sourceIds || this.options.sourceIds.includes(source.id));
+      .filter((source) => !opts.sourceIds || opts.sourceIds.includes(source.id));
     const totalSteps = activeSources.length + 1;
     let step = 0;
     const emit = (event: Omit<NewsCrawlProgress, 'step' | 'totalSteps'>) =>
@@ -163,11 +167,17 @@ export class NewsCrawler {
         emit({ phase: 'fetch', sourceId: source.id, message: `Crawling ${source.title}` });
         try {
           const limit = this.maxItemsFor(source);
+          const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+          const scrollPasses = opts.scrollPasses ?? DEFAULT_SCROLL_PASSES;
+          const settleMs = opts.settleMs ?? DEFAULT_SETTLE_MS;
           const snapshot = await this.fetchSourceGraph(source, {
-            timeoutMs: this.options.timeoutMs ?? DEFAULT_TIMEOUT_MS,
-            scrollPasses: this.options.scrollPasses ?? DEFAULT_SCROLL_PASSES,
-            settleMs: this.options.settleMs ?? DEFAULT_SETTLE_MS,
+            timeoutMs,
+            scrollPasses,
+            settleMs,
             maxCandidates: limit * 4,
+            maxDepth: opts.maxDepth,
+            maxPages: opts.maxPagesPerSource,
+            maxLinksPerPage: opts.maxLinksPerPage,
           });
           const allComments = [snapshot.comments]
             .filter(Boolean)
@@ -208,9 +218,9 @@ export class NewsCrawler {
 
   private async fetchSourceGraph(source: NewsSource, fetchOptions: NewsFetchOptions): Promise<NewsPageSnapshot> {
     const rootUrl = normalizeUrl(source.url, source.url) ?? source.url;
-    const maxDepth = Math.max(0, Math.floor(this.options.maxDepth ?? DEFAULT_MAX_DEPTH));
-    const maxPages = Math.max(1, Math.floor(this.options.maxPagesPerSource ?? DEFAULT_MAX_PAGES_PER_SOURCE));
-    const maxLinksPerPage = Math.max(1, Math.floor(this.options.maxLinksPerPage ?? DEFAULT_MAX_LINKS_PER_PAGE));
+    const maxDepth = Math.max(0, Math.floor(fetchOptions.maxDepth ?? DEFAULT_MAX_DEPTH));
+    const maxPages = Math.max(1, Math.floor(fetchOptions.maxPages ?? DEFAULT_MAX_PAGES_PER_SOURCE));
+    const maxLinksPerPage = Math.max(1, Math.floor(fetchOptions.maxLinksPerPage ?? DEFAULT_MAX_LINKS_PER_PAGE));
     const queue: { url: string; depth: number }[] = [{ url: rootUrl, depth: 0 }];
     const queued = new Set<string>([rootUrl]);
     const visited = new Set<string>();
@@ -274,10 +284,16 @@ export class PlaywrightNewsPageFetcher implements NewsPageFetcher {
         await page.waitForTimeout(options.settleMs);
       }
       const pageTitle: string = await page.title();
-      const candidates = (await page.evaluate(extractCandidatesFromPage, {
-        baseUrl: source.url,
-        maxCandidates: options.maxCandidates,
-      })) as NewsCandidate[];
+      const candidates =
+        source.kind === 'reddit'
+          ? ((await page.evaluate(extractRedditCandidatesFromPage, {
+              baseUrl: source.url,
+              maxCandidates: options.maxCandidates,
+            })) as NewsCandidate[])
+          : ((await page.evaluate(extractCandidatesFromPage, {
+              baseUrl: source.url,
+              maxCandidates: options.maxCandidates,
+            })) as NewsCandidate[]);
       const comments = (await page.evaluate(extractCommentsFromPage)) as string | undefined;
       return { pageTitle, candidates, comments: comments || undefined };
     } finally {
@@ -566,6 +582,99 @@ function followUpUrls(
   return out;
 }
 
+/**
+ * Extracts candidates from a Reddit page, including links from comments
+ * to other posts. Runs inside the browser via page.evaluate.
+ */
+function extractRedditCandidatesFromPage({
+  baseUrl,
+  maxCandidates,
+}: {
+  baseUrl: string;
+  maxCandidates: number;
+}): NewsCandidate[] {
+  const doc = (globalThis as { document?: any }).document;
+  if (!doc?.querySelectorAll) return [];
+  const clean = (value: unknown): string =>
+    typeof value === 'string' ? value.replace(/\s+/g, ' ').trim() : '';
+  const seen = new Set<string>();
+  const out: NewsCandidate[] = [];
+
+  const push = (title: string, url?: string, summary?: string, publishedAt?: string) => {
+    const key = `${url ?? ''}\n${title.toLowerCase()}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push({ title, url: url || undefined, summary: summary || undefined, publishedAt });
+  };
+
+  // Current post title + url
+  const postTitle = clean(
+    doc.querySelector('h1')?.textContent ??
+      doc.querySelector('[data-testid="post-title"]')?.textContent ??
+      doc.title,
+  );
+  const canonical = doc.querySelector('link[rel="canonical"]')?.getAttribute('href') ?? baseUrl;
+  if (postTitle) push(postTitle, canonical);
+
+  // Comments and their links
+  const commentSelectors = [
+    '[data-testid="comment"]',
+    '.thing .entry',
+    '.usertext-body',
+    '.md',
+    '.comment',
+    '.Comment',
+  ];
+  const commentLinks = new Set<string>();
+  for (const sel of commentSelectors) {
+    for (const el of Array.from(doc.querySelectorAll(sel)) as any[]) {
+      const text = clean(el.textContent ?? '');
+      if (text.length < 10) continue;
+      // Extract links from the comment
+      for (const link of Array.from(el.querySelectorAll('a[href]') || []) as any[]) {
+        const href = link.getAttribute?.('href');
+        if (!href) continue;
+        let absolute: string;
+        try {
+          absolute = new URL(href, baseUrl).toString();
+        } catch { continue; }
+        // Only follow reddit post links
+        if (/reddit\.com\/r\/\w+\/comments\//i.test(absolute)) {
+          if (commentLinks.has(absolute)) continue;
+          commentLinks.add(absolute);
+          const linkText = clean(link.textContent ?? '') || clean(link.getAttribute('aria-label') ?? '');
+          push(linkText || 'Reddit post', absolute, text.slice(0, 300));
+        }
+      }
+    }
+  }
+
+  // Also collect title links (posts on subreddit listing pages)
+  for (const el of Array.from(doc.querySelectorAll('a[href*="/comments/"]')) as any[]) {
+    if (out.length >= maxCandidates * 2) break;
+    const href = el.getAttribute?.('href');
+    if (!href) continue;
+    let absolute: string;
+    try { absolute = new URL(href, baseUrl).toString(); } catch { continue; }
+    const title = clean(el.textContent ?? el.getAttribute('aria-label') ?? '');
+    push(title || 'Reddit post', absolute);
+  }
+
+  // Also extract any regular article/news links from comments
+  for (const el of Array.from(doc.querySelectorAll('[data-testid="comment"] a[href], .usertext-body a[href], .md a[href]')) as any[]) {
+    if (out.length >= maxCandidates) break;
+    const href = el.getAttribute?.('href');
+    if (!href) continue;
+    let absolute: string;
+    try { absolute = new URL(href, baseUrl).toString(); } catch { continue; }
+    if (/reddit\.com\/r\//i.test(absolute)) continue;
+    const text = clean(el.textContent ?? '');
+    push(text || 'External link', absolute);
+  }
+
+  return out.slice(0, maxCandidates);
+}
+
 function isSourceLocalUrl(sourceUrl: string, targetUrl: string): boolean {
   try {
     return new URL(sourceUrl).origin === new URL(targetUrl).origin;
@@ -604,6 +713,10 @@ function isCrawlableSourcePath(source: NewsSource, targetUrl: string): boolean {
     return path.includes('/economic-calendar/') || path.includes('/analysis/') || path.includes('/news/');
   }
 
+  if (source.kind === 'reddit') {
+    return path.includes('/comments/') || path.includes('/r/');
+  }
+
   return path.length > 1;
 }
 
@@ -611,8 +724,8 @@ function isGenericSourceRootTitle(kind: NewsSourceKind, title: string): boolean 
   if (kind === 'economic-calendar') {
     return title === 'economic calendar' || title === 'экономический календарь' || title === 'календарь';
   }
-  if (kind === 'news' || kind === 'community') {
-    return title === 'news' || title === 'новости' || title === 'community' || title === 'сообщество';
+  if (kind === 'news' || kind === 'community' || kind === 'reddit') {
+    return title === 'news' || title === 'новости' || title === 'community' || title === 'сообщество' || title === 'reddit';
   }
   return title === 'markets' || title === 'рынки';
 }
@@ -628,9 +741,9 @@ function parseNewsSource(entry: unknown, index: number): NewsSource {
   const title = requireString(entry.title, `sources[${index}].title`);
   const url = requireString(entry.url, `sources[${index}].url`);
   const kind = requireString(entry.kind, `sources[${index}].kind`);
-  if (!['economic-calendar', 'news', 'market', 'community'].includes(kind)) {
-    throw new Error(`sources[${index}].kind must be economic-calendar, news, market, or community`);
-  }
+      if (!['economic-calendar', 'news', 'market', 'community', 'reddit'].includes(kind)) {
+        throw new Error(`sources[${index}].kind must be economic-calendar, news, market, community, or reddit`);
+      }
 
   let exchange: ExchangeCommunity | undefined;
   if (entry.exchange != null) {

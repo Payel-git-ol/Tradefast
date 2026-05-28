@@ -6,6 +6,8 @@ import type { IntervalName } from './intervals.js';
 import type { ThemeName } from './theme.js';
 import type { ExchangeName } from './exchanges.js';
 import type { ModeName } from './modes.js';
+import type { SearchLevelName } from './search-level.js';
+import type { SourceGroupId } from './sources.js';
 
 const PREF_PATH = join(homedir(), '.lostfast', 'preferences.json');
 
@@ -14,6 +16,8 @@ export interface UserPreferences {
   exchange?: ExchangeName;
   interval?: IntervalName;
   mode?: ModeName;
+  searchingLevel?: SearchLevelName;
+  searchingPlatforms?: SourceGroupId[];
 }
 
 export async function loadPreferences(): Promise<UserPreferences> {
@@ -47,4 +51,12 @@ export async function saveInterval(name: IntervalName): Promise<void> {
 
 export async function saveMode(name: ModeName): Promise<void> {
   await savePreferences({ mode: name });
+}
+
+export async function saveSearchingLevel(name: SearchLevelName): Promise<void> {
+  await savePreferences({ searchingLevel: name });
+}
+
+export async function saveSearchingPlatforms(groups: SourceGroupId[]): Promise<void> {
+  await savePreferences({ searchingPlatforms: groups });
 }

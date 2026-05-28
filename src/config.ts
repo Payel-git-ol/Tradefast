@@ -8,6 +8,8 @@ export interface LostfastConfig {
   theme: string;
   exchange: string;
   mode: string;
+  searchingLevel: string;
+  searchingPlatforms: string[];
   apiEnabled: boolean;
   apiHost: string;
   apiPort: number;
@@ -44,6 +46,12 @@ export function loadConfig(overrides: Partial<LostfastConfig> = {}): LostfastCon
     theme: overrides.theme ?? process.env.LOSTFAST_THEME ?? 'violet',
     exchange: overrides.exchange ?? process.env.LOSTFAST_EXCHANGE ?? 'bybit',
     mode: overrides.mode ?? process.env.LOSTFAST_MODE ?? 'medium-term',
+    searchingLevel: overrides.searchingLevel ?? process.env.LOSTFAST_SEARCHING_LEVEL ?? 'normal',
+    searchingPlatforms: overrides.searchingPlatforms ?? (
+      process.env.LOSTFAST_SEARCHING_PLATFORMS
+        ? process.env.LOSTFAST_SEARCHING_PLATFORMS.split(',').map(s => s.trim()).filter(Boolean)
+        : ['economic-calendars', 'news-portals', 'reddit-communities', 'exchange-communities']
+    ),
     apiEnabled: overrides.apiEnabled ?? envFlag('LOSTFAST_API', true),
     apiHost: overrides.apiHost ?? process.env.LOSTFAST_API_HOST ?? '127.0.0.1',
     apiPort: overrides.apiPort ?? Number(process.env.LOSTFAST_API_PORT ?? 0),

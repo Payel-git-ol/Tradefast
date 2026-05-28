@@ -15,7 +15,9 @@ import { getTheme, themeGradient, themeNames, type ThemeName } from './cli/theme
 import { getExchange, exchangeNames, type ExchangeName } from './cli/exchanges.js';
 import { getInterval, intervalNames } from './cli/intervals.js';
 import { getMode, modeNames, type ModeName } from './cli/modes.js';
-import { loadPreferences, saveTheme, saveExchange, saveInterval, saveMode } from './cli/preferences.js';
+import { getSearchLevel, searchLevelNames, type SearchLevelName } from './cli/search-level.js';
+import { sourceGroupIds, resolveSourceIds, type SourceGroupId } from './cli/sources.js';
+import { loadPreferences, saveTheme, saveExchange, saveInterval, saveMode, saveSearchingLevel, saveSearchingPlatforms } from './cli/preferences.js';
 import { renderBacktestLines } from './cli/backtest-log.js';
 import { renderTradeLogLines } from './cli/trade-log.js';
 import { loadConfig } from './config.js';
@@ -103,6 +105,34 @@ async function runHeadless(command: string): Promise<number> {
       await saveInterval(iv.name as import('./cli/intervals.js').IntervalName);
     }
     process.stdout.write(args[0] ? `Trading timeframe: ${iv.label}\n` : `Timeframes: ${intervalNames().join(', ')}\n`);
+    return 0;
+  }
+  if (name === 'serching-level') {
+    const sl = getSearchLevel(args[0]);
+    if (args[0] && sl.name !== args[0].toLowerCase()) {
+      process.stderr.write(`Unknown search level "${args[0]}". Available: ${searchLevelNames().join(', ')}\n`);
+      return 1;
+    }
+    if (args[0]) {
+      await saveSearchingLevel(sl.name as SearchLevelName);
+    }
+    process.stdout.write(args[0] ? `Research depth: ${sl.label} — ${sl.description}\n` : `Levels: ${searchLevelNames().join(', ')}\n`);
+    return 0;
+  }
+  if (name === 'serching-platforms') {
+    if (args.length > 0) {
+      const groups = args[0].split(',').map((s) => s.trim()).filter(Boolean);
+      const valid = groups.filter((g) => sourceGroupIds().includes(g as SourceGroupId));
+      if (valid.length === 0) {
+        process.stderr.write(`No valid platform groups. Available: ${sourceGroupIds().join(', ')}\n`);
+        return 1;
+      }
+      await saveSearchingPlatforms(valid as SourceGroupId[]);
+      const count = resolveSourceIds(valid as SourceGroupId[]).length;
+      process.stdout.write(`Research platforms: ${valid.join(', ')} (${count} sources)\n`);
+    } else {
+      process.stdout.write(`Platform groups: ${sourceGroupIds().join(', ')}\n`);
+    }
     return 0;
   }
   if (name === 'exit') return 0;
@@ -194,11 +224,15 @@ async function main(): Promise<void> {
   // reflects the chosen mode (or a later fine-tune); honour it when present and
   // otherwise fall back to the mode's recommended timeframe.
   const effectiveInterval = saved.interval ?? (saved.mode ? getMode(effectiveMode).interval : baseConfig.interval);
+  const effectiveSearchingLevel = saved.searchingLevel ?? baseConfig.searchingLevel;
+  const effectiveSearchingPlatforms = saved.searchingPlatforms ?? baseConfig.searchingPlatforms;
   const config = loadConfig({
     theme: effectiveTheme,
     exchange: effectiveExchange,
     interval: effectiveInterval,
     mode: effectiveMode,
+    searchingLevel: effectiveSearchingLevel,
+    searchingPlatforms: effectiveSearchingPlatforms,
   });
   const app = await Lostfast.create(config);
   const backend = config.apiEnabled

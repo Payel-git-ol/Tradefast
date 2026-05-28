@@ -13,6 +13,8 @@ export interface CollectOptions {
   limit?: number;
   params?: StrategyParameters;
   accountBalance?: number;
+  /** When true, skip the extra AI validation API call (used when AI chat runs the command itself). */
+  skipAiValidation?: boolean;
 }
 
 /** A single human-readable progress step, streamed to the UI as work proceeds. */
@@ -164,7 +166,7 @@ export class CollectionPipeline {
     // --- AI validation (single request with all data) -----------------------
     let validation: ValidationResult | null = null;
     const hasAiKey = !!(process.env.LOSTFAST_AI_API_KEY ?? process.env.ANTHROPIC_API_KEY);
-    if (hasAiKey && reports.length > 0) {
+    if (!options.skipAiValidation && hasAiKey && reports.length > 0) {
       emit({ phase: 'advise', message: 'Running AI validation across all symbols…' });
 
       const forecasts = reports.map((r) => buildForecast(r.analysis));
