@@ -121,7 +121,7 @@ TRADEFAST_MARKET_SOURCE=synthetic TRADEFAST_DATA_DIR=:memory: node dist/index.js
 | `/currency [symbol]` | Run a full forecast for a single symbol with news sentiment and price chart. |
 | `/exchange` | Swap the asset being researched — opens a pop-up to select from trading symbols. |
 | `/ratings` | Show source credibility ratings. Subcommands: `correct`, `incorrect`, `loud-claim`, or a numeric grade (`/ratings "Хабр" -1`). |
-| `/clear-chat` | Clear the chat transcript and reset AI conversation history. |
+| `/clear-chat` | Clear the chat transcript and reset AI conversation history, restoring the welcome banner and tips. |
 | `/api`         | Show the in-process GraphQL endpoint.                                        |
 | `/help`        | Show the command list.                                                       |
 | `/exit`        | Quit (aliases: `/quit`, `/q`, `Esc`, `Ctrl+C`).                              |
