@@ -270,6 +270,7 @@ describe('run output', () => {
     kind: 'start',
     searchResults: 3,
     durationMs: 2340,
+    validation: null,
     symbols: [
       {
         symbol: 'BTCUSDT',
@@ -279,6 +280,7 @@ describe('run output', () => {
         signalsUnchanged: 0,
         scrapesAdded: 0,
         insight: 'hidden in table view',
+        assessment: 'Momentum favours longs',
         analysis: {
           symbol: 'BTCUSDT',
           analytics: {
@@ -321,11 +323,11 @@ describe('run output', () => {
   it('renders a bordered trade log table with entry, stop-loss, and target prices', () => {
     expect(renderTradeLogLines(report)).toEqual([
       'Trade Log',
-      '╭──────────┬───────────┬────────┬───────┬─────────────╮',
-      '│ Currency │ Direction │ TP     │ SL    │ Entry price │',
-      '├──────────┼───────────┼────────┼───────┼─────────────┤',
-      '│ BTCUSDT  │ long      │ 110.00 │ 95.00 │ 100.00      │',
-      '╰──────────┴───────────┴────────┴───────┴─────────────╯',
+      '╭──────────┬──────┬────────┬───────┬────────┬────────────────────────╮',
+      '│ Currency │ Dir  │ TP     │ SL    │ Price  │ AI                     │',
+      '├──────────┼──────┼────────┼───────┼────────┼────────────────────────┤',
+      '│ BTCUSDT  │ long │ 110.00 │ 95.00 │ 100.00 │ Momentum favours longs │',
+      '╰──────────┴──────┴────────┴───────┴────────┴────────────────────────╯',
     ]);
   });
 
@@ -346,7 +348,7 @@ describe('run output', () => {
       ],
     };
 
-    expect(renderTradeLogLines(shortReport)).toContain('│ BTCUSDT  │ short     │ 90.00 │ 105.00 │ 100.00      │');
+    expect(renderTradeLogLines(shortReport)).toContain('│ BTCUSDT  │ short │ 90.00 │ 105.00 │ 100.00 │ Momentum favours longs │');
   });
 
   it('uses the bordered trade log in interactive output', () => {
@@ -358,8 +360,8 @@ describe('run output', () => {
 
     const frame = lastFrame();
     expect(frame).toContain('Trade Log');
-    expect(frame).toContain('╭──────────┬───────────┬────────┬───────┬─────────────╮');
-    expect(frame).toContain('│ BTCUSDT  │ long      │ 110.00 │ 95.00 │ 100.00      │');
+    expect(frame).toContain('╭──────────┬──────┬────────┬───────┬────────┬────────────────────────╮');
+    expect(frame).toContain('│ BTCUSDT  │ long │ 110.00 │ 95.00 │ 100.00 │ Momentum favours longs │');
     expect(frame).not.toContain('# Trade Log');
     expect(frame).not.toContain('| Currency |');
     expect(frame).not.toContain('strongest:');
@@ -385,7 +387,7 @@ describe('run output', () => {
       ],
     };
 
-    expect(renderTradeLogLines(noActionReport)).toContain('│ BTCUSDT  │           │    │    │ 100.00      │');
+    expect(renderTradeLogLines(noActionReport)).toContain('│ BTCUSDT  │     │    │    │ 100.00 │ Momentum favours longs │');
   });
 });
 
