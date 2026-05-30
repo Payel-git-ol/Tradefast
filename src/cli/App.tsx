@@ -1073,7 +1073,12 @@ export function App({ app, version, apiUrl, promptOperatingMode }: AppProps): Re
         } else if (name === 'status') {
           push({ kind: 'status', status: await app.status() });
         } else if (name === 'clear-chat') {
-          setHistory([]);
+          // Reset to the freshly-launched screen: a lone banner with the
+          // "getting started" tips, rather than a blank transcript. Clearing
+          // to [] dropped the banner and left an awkward, empty view (#25).
+          setHistory([
+            { id: nextId.current++, kind: 'banner', version, driver: app.driver, model: app.config.model },
+          ]);
           chatService.current.reset();
         } else if (name === 'clear') {
           const pruned = await app.clear();
@@ -1090,7 +1095,7 @@ export function App({ app, version, apiUrl, promptOperatingMode }: AppProps): Re
         setProgress(null);
       }
     },
-    [apiUrl, app, openThemeSelector, openExchangeSelector, openIntervalSelector, openModeSelector, openCurrencySelector, applyMode, applyLevel, applyPlatforms, searchingLevel, enabledPlatforms, newsCrawlOptions, push, quit, setHistory, theme],
+    [apiUrl, app, openThemeSelector, openExchangeSelector, openIntervalSelector, openModeSelector, openCurrencySelector, applyMode, applyLevel, applyPlatforms, searchingLevel, enabledPlatforms, newsCrawlOptions, push, quit, setHistory, theme, version],
   );
 
   const onSubmit = useCallback(

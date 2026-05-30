@@ -1,6 +1,6 @@
 {
   "name": "Tradefast",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "TRADEFΛST — a disciplined crypto market-research CLI: strategies, analytics, risk and AI-assisted research, in the style of Gemini CLI.",
   "type": "module",
   "license": "MIT",

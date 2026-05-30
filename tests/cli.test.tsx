@@ -197,6 +197,44 @@ describe('command autocomplete', () => {
     unmount();
   });
 
+  it('restores the banner and getting-started tips after /clear-chat', async () => {
+    const tallStdout = { rows: 80, columns: 120, write: () => {}, on: () => {}, removeListener: () => {} } as any;
+    const { lastFrame, stdin, unmount } = render(
+      <App app={fakeApp} version="0.0.0-test" apiUrl="http://127.0.0.1:8787/graphql" />,
+      { stdout: tallStdout },
+    );
+
+    // Let the component mount so its input handler is registered before typing.
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    const submit = async (command: string) => {
+      for (const ch of command) {
+        stdin.write(ch);
+        await new Promise((resolve) => setTimeout(resolve, 1));
+      }
+      // The first Enter fills the highlighted suggestion; the second submits.
+      stdin.write('\r');
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      stdin.write('\r');
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    };
+
+    // Add some transcript output, then clear it.
+    await submit('/help');
+    expect(lastFrame()).toContain('Commands:');
+
+    await submit('/clear-chat');
+
+    // After clearing the chat the screen should look like a fresh launch: the
+    // banner tips panel is restored and prior output is gone, instead of the
+    // awkward blank transcript the old [] reset left behind (#25).
+    const frame = lastFrame();
+    expect(frame).toContain('Tips for getting started');
+    expect(frame).not.toContain('Commands:');
+    expect(frame).toContain('type a command');
+    unmount();
+  });
+
   it('does not prompt for an operating mode when one is already saved', async () => {
     const tallStdout = { rows: 80, columns: 120, write: () => {}, on: () => {}, removeListener: () => {} } as any;
     const { lastFrame, unmount } = render(
