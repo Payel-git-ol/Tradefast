@@ -443,6 +443,9 @@ exposes these tools to the AI:
   toggle specific groups (e.g. enable only `economic-calendars` for
   fundamentals) or the whole-internet `web-search` platform to tailor research
   scope.
+- **`run_web_search`** — searches the public Internet directly from chat for
+  current rates, news, fiat/forex pairs, or anything outside the tracked crypto
+  symbols, then uses those results to answer the user.
 - **`run_ratings_adjust`** — modifies a source's credibility rating. Parameters:
   `source` (title or ID) and `grade` (integer, e.g. `-1` = −1%). Triggered by
   user feedback like *"Хабр -1"* or *"понизь рейтинг Хабру"*.
