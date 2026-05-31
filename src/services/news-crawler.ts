@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 
 import configuredNewsSources from '../config/news-sources.json' with { type: 'json' };
@@ -142,14 +143,70 @@ export async function createNewsCrawler(): Promise<NewsCrawler> {
   });
 }
 
-async function detectPlaywrightFetcher(): Promise<NewsPageFetcher> {
+export async function detectPlaywrightFetcher(): Promise<NewsPageFetcher> {
   try {
     const { chromium } = await import('playwright');
-    chromium.executablePath();
-    return new PlaywrightNewsPageFetcher();
+    // executablePath() only computes where the Chromium binary is *expected* to
+    // live — it does not verify the file is actually there. When the browser was
+    // never downloaded (e.g. `npx playwright install` was not run), it returns a
+    // non-empty path to a missing file, so we must check the binary exists on
+    // disk before choosing Playwright. Otherwise every source fails at
+    // launch time with "browserType.launch: Executable doesn't exist at ...".
+    const executablePath = chromium.executablePath();
+    if (!executablePath || !existsSync(executablePath)) {
+      return new HttpNewsPageFetcher();
+    }
+    return new ResilientNewsPageFetcher(new PlaywrightNewsPageFetcher());
   } catch {
     return new HttpNewsPageFetcher();
   }
+}
+
+/**
+ * Wraps the Playwright fetcher and falls back to the HTTP fetcher when the
+ * headless browser cannot be launched (e.g. Chromium was only partially
+ * installed). The first time a launch fails, every subsequent fetch is served
+ * by the HTTP fallback so a single missing browser does not fail every source.
+ */
+export class ResilientNewsPageFetcher implements NewsPageFetcher {
+  readonly name = 'resilient-news';
+  private readonly fallback = new HttpNewsPageFetcher();
+  private useFallback = false;
+
+  constructor(private readonly primary: NewsPageFetcher) {}
+
+  async fetch(source: NewsSource, options: NewsFetchOptions): Promise<NewsPageSnapshot> {
+    if (this.useFallback) return this.fallback.fetch(source, options);
+    try {
+      return await this.primary.fetch(source, options);
+    } catch (error) {
+      if (isBrowserLaunchError(error)) {
+        this.useFallback = true;
+        await this.primary.close().catch(() => {});
+        return this.fallback.fetch(source, options);
+      }
+      throw error;
+    }
+  }
+
+  async close(): Promise<void> {
+    await this.primary.close().catch(() => {});
+    await this.fallback.close().catch(() => {});
+  }
+}
+
+/**
+ * Detects the Playwright error raised when the Chromium binary is missing or
+ * cannot be started, so the crawler can switch to the HTTP fallback instead of
+ * reporting every source as failed.
+ */
+function isBrowserLaunchError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return (
+    message.includes('browserType.launch') ||
+    message.includes("Executable doesn't exist") ||
+    message.includes('playwright install')
+  );
 }
 
 export class NewsCrawler {

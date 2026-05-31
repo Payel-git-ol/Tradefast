@@ -5,7 +5,9 @@ import { TradefastStore } from '../src/db/store.js';
 import {
   DEFAULT_NEWS_SOURCES,
   NewsCrawler,
+  ResilientNewsPageFetcher,
   type NewsCandidate,
+  type NewsFetchOptions,
   type NewsItem,
   type NewsPageFetcher,
 } from '../src/services/news-crawler.js';
@@ -219,6 +221,62 @@ describe('NewsCrawler', () => {
         }),
       ]),
     );
+  });
+});
+
+describe('ResilientNewsPageFetcher', () => {
+  const source = DEFAULT_NEWS_SOURCES[0];
+  const options: NewsFetchOptions = {
+    timeoutMs: 1_000,
+    scrollPasses: 0,
+    settleMs: 0,
+    maxCandidates: 4,
+  };
+
+  it('falls back to HTTP fetching when the browser cannot be launched', async () => {
+    const primary: NewsPageFetcher = {
+      name: 'broken-playwright',
+      fetch: vi.fn(async () => {
+        throw new Error(
+          "browserType.launch: Executable doesn't exist at C:\\\\ms-playwright\\\\chrome.exe",
+        );
+      }),
+      close: vi.fn(async () => {}),
+    };
+    const fetcher = new ResilientNewsPageFetcher(primary);
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockImplementation(async () =>
+        new Response('<html><head><title>Markets</title></head><body></body></html>', {
+          headers: { 'content-type': 'text/html' },
+        }),
+      );
+
+    try {
+      const first = await fetcher.fetch(source, options);
+      expect(first.pageTitle).toBe('Markets');
+      // After the first launch failure, the primary fetcher is not retried.
+      await fetcher.fetch(source, options);
+      expect(primary.fetch).toHaveBeenCalledOnce();
+      expect(primary.close).toHaveBeenCalledOnce();
+      expect(fetchSpy).toHaveBeenCalledTimes(2);
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
+
+  it('rethrows non-launch errors instead of masking them', async () => {
+    const primary: NewsPageFetcher = {
+      name: 'flaky-playwright',
+      fetch: vi.fn(async () => {
+        throw new Error('net::ERR_CONNECTION_REFUSED');
+      }),
+      close: vi.fn(async () => {}),
+    };
+    const fetcher = new ResilientNewsPageFetcher(primary);
+
+    await expect(fetcher.fetch(source, options)).rejects.toThrow('net::ERR_CONNECTION_REFUSED');
+    expect(primary.close).not.toHaveBeenCalled();
   });
 });
 

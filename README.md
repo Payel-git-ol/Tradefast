@@ -352,7 +352,8 @@ node dist/index.js news
 ```
 
 The crawler uses a lazy headless Chromium instance (or plain HTTP fallback when
-Playwright is not installed), scrolls each source page, extracts likely
+the Chromium binary has not been downloaded, e.g. `npx playwright install` was
+never run, or when launching the browser fails), scrolls each source page, extracts likely
 article/event links, then follows source-local event and article URLs within the
 configured depth/page budget. Detail pages are captured from their own
 heading/metadata/body text, URLs are normalized, and items are deduplicated by
