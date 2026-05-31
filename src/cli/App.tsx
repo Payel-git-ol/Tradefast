@@ -735,6 +735,24 @@ export function App({ app, version, apiUrl, promptOperatingMode }: AppProps): Re
                 openCurrencySelector();
                 return 'Currency selector opened — pick a currency.';
               }
+              case 'run_web_search': {
+                const query = ((toolArgs.query as string) || '').trim();
+                const requestedLimit = typeof toolArgs.limit === 'number'
+                  ? toolArgs.limit
+                  : Number(toolArgs.limit);
+                const limit = Number.isFinite(requestedLimit) && requestedLimit > 0
+                  ? Math.min(10, Math.floor(requestedLimit))
+                  : 5;
+                if (!query) return 'Error: query is required for web search.';
+                const results = await app.search(query, limit);
+                return JSON.stringify(results.map((result) => ({
+                  title: result.title,
+                  url: result.url,
+                  snippet: result.snippet,
+                  source: result.source,
+                  score: result.score,
+                })));
+              }
               case 'run_help': {
                 const text = COMMANDS.map(c => `  ${c.name.padEnd(12)} ${c.summary}`).join('\n');
                 return `Available commands:\n${text}`;

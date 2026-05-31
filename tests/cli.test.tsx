@@ -248,6 +248,79 @@ describe('command autocomplete', () => {
     expect(lastFrame()).toContain('type a command');
     unmount();
   });
+
+  it('lets AI chat search the internet directly for current non-tracked rates', async () => {
+    const previousKey = process.env.TRADEFAST_AI_API_KEY;
+    const previousUrl = process.env.TRADEFAST_AI_API_URL;
+    process.env.TRADEFAST_AI_API_KEY = 'test-key';
+    process.env.TRADEFAST_AI_API_URL = 'http://127.0.0.1/v1/chat/completions';
+
+    const search = vi.fn().mockResolvedValue([
+      {
+        query: 'RUB/USD exchange rate',
+        source: 'web-search',
+        title: 'USD/RUB Exchange Rate',
+        url: 'https://example.com/rub-usd',
+        snippet: '1 USD equals 90 RUB',
+        score: 1,
+      },
+    ]);
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        choices: [
+          {
+            message: {
+              content: null,
+              tool_calls: [
+                {
+                  id: 'call_1',
+                  type: 'function',
+                  function: {
+                    name: 'run_web_search',
+                    arguments: JSON.stringify({ query: 'RUB/USD exchange rate', limit: 3 }),
+                  },
+                },
+              ],
+            },
+          },
+        ],
+      })))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        choices: [{ message: { content: 'По веб-поиску: 1 USD примерно равен 90 RUB.' } }],
+      })));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const tallStdout = { rows: 80, columns: 120, write: () => {}, on: () => {}, removeListener: () => {} } as any;
+    const app = { ...fakeApp, search } as unknown as Tradefast;
+    const { lastFrame, stdin, unmount } = render(
+      <App app={app} version="0.0.0-test" apiUrl="http://127.0.0.1:8787/graphql" />,
+      { stdout: tallStdout },
+    );
+
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      for (const ch of 'rub/usd rate') {
+        stdin.write(ch);
+        await new Promise((resolve) => setTimeout(resolve, 1));
+      }
+      stdin.write('\r');
+      await new Promise((resolve) => setTimeout(resolve, 50));
+
+      const firstBody = JSON.parse((fetchMock.mock.calls[0]?.[1] as RequestInit).body as string);
+      const toolNames = firstBody.tools.map((tool: { function: { name: string } }) => tool.function.name);
+      expect(toolNames).toContain('run_web_search');
+      expect(search).toHaveBeenCalledWith('RUB/USD exchange rate', 3);
+      expect(lastFrame()).toContain('По веб-поиску');
+    } finally {
+      unmount();
+      vi.unstubAllGlobals();
+      if (previousKey === undefined) delete process.env.TRADEFAST_AI_API_KEY;
+      else process.env.TRADEFAST_AI_API_KEY = previousKey;
+      if (previousUrl === undefined) delete process.env.TRADEFAST_AI_API_URL;
+      else process.env.TRADEFAST_AI_API_URL = previousUrl;
+    }
+  });
 });
 
 describe('cli themes', () => {
