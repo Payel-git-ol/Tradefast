@@ -4,6 +4,7 @@ import { render } from 'ink-testing-library';
 
 import type { Tradefast } from '../src/app/tradefast.js';
 import { App } from '../src/cli/App.js';
+import { parseAiMarkup } from '../src/cli/ai-markup.js';
 import { completeCommand, parseCommand, suggestCommands } from '../src/cli/commands.js';
 import { OutputLine } from '../src/cli/output.js';
 import { getTheme, themeNames } from '../src/cli/theme.js';
@@ -492,6 +493,26 @@ describe('run output', () => {
     unmount();
   });
 
+  it('renders AI markdown markers as formatting instead of literal text', () => {
+    const tallStdout = { rows: 80, columns: 120, write: () => {}, on: () => {}, removeListener: () => {} } as any;
+    const text = [
+      'Актуальный курс **BYN/USD** на сегодня:',
+      '- **1 BYN ≈ 0.3618–0.3623 USD**',
+      'Динамика: курс укрепился (+0.24%).',
+    ].join('\n');
+    const { lastFrame, unmount } = render(
+      <OutputLine item={{ id: 1, kind: 'ai', text }} theme={getTheme('violet')} />,
+      { stdout: tallStdout },
+    );
+
+    const frame = lastFrame();
+    expect(frame).toContain('Актуальный курс BYN/USD на сегодня:');
+    expect(frame).toContain('- 1 BYN ≈ 0.3618–0.3623 USD');
+    expect(frame).toContain('(+0.24%)');
+    expect(frame).not.toContain('**');
+    unmount();
+  });
+
   it('keeps blank cells inside the bordered table when no actionable signal is available', () => {
     const noActionReport: RunReport = {
       ...report,
@@ -530,6 +551,30 @@ describe('run output', () => {
     const row = lines.find((l) => l.includes('long')) ?? '';
     expect(row).toContain('2h');
     expect(row).not.toContain('110.00');
+  });
+});
+
+describe('AI message markup', () => {
+  it('parses bold, inline code, and fenced code markers without rendering delimiters', () => {
+    const segments = parseAiMarkup('Rate **BYN/USD** uses `mid`\n```json\n{"pair":"BYN/USD"}\n```\nDone');
+
+    expect(segments.map((segment) => segment.text).join('')).toBe('Rate BYN/USD uses mid\n{"pair":"BYN/USD"}\nDone');
+    expect(segments).toContainEqual({ text: 'BYN/USD', bold: true });
+    expect(segments).toContainEqual({ text: 'mid', code: true });
+    expect(segments).toContainEqual({ text: '{"pair":"BYN/USD"}\n', code: true });
+  });
+
+  it('marks signed numeric values while leaving bullets and price ranges alone', () => {
+    const segments = parseAiMarkup('- result range 0.3618-0.3623, changes (+0.24%), -116, +890.05, and - item');
+
+    expect(segments.filter((segment) => segment.tone).map((segment) => ({
+      text: segment.text,
+      tone: segment.tone,
+    }))).toEqual([
+      { text: '+0.24%', tone: 'positive' },
+      { text: '-116', tone: 'negative' },
+      { text: '+890.05', tone: 'positive' },
+    ]);
   });
 });
 

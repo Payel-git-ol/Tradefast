@@ -5,6 +5,7 @@ import type { PersistedNewsCrawlReport, StatusReport } from '../app/tradefast.js
 import type { RunReport } from '../pipeline/collector.js';
 import type { BacktestReport } from '../services/backtest.js';
 import type { SourceRating } from '../services/source-ratings.js';
+import { AiFormattedText } from './ai-markup.js';
 import { Banner } from './Banner.js';
 import { renderBacktestParts } from './backtest-log.js';
 import type { ChartData } from './chart.js';
@@ -304,7 +305,7 @@ export function OutputLine({
       return (
         <Box flexDirection="column" marginY={1}>
           <Text bold color={theme.colors.accent}>▌AI</Text>
-          <Text color={theme.colors.muted}>{item.text}</Text>
+          <AiFormattedText text={item.text} theme={theme} />
         </Box>
       );
     case 'ratings':
